@@ -48,12 +48,14 @@ docket_triage:
   text_root: "${INCIDENT_PIPELINE_DOCKET_TRIAGE_TEXT_ROOT}"
   output_root: "${INCIDENT_PIPELINE_DOCKET_TRIAGE_OUTPUT_ROOT}"
   overwrite_existing: false
+  require_certified_input: true
   text_read_chars: 4000
 
 primary_docket_narrative:
   input_root: "${INCIDENT_PIPELINE_PRIMARY_NARRATIVE_INPUT_ROOT}"
   output_root: "${INCIDENT_PIPELINE_PRIMARY_NARRATIVE_OUTPUT_ROOT}"
   overwrite_existing: false
+  require_certified_input: true
 
 logging:
   level: INFO

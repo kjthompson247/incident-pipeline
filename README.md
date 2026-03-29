@@ -112,6 +112,36 @@ falls back to a raw filesystem scan for compatibility only. That fallback is
 lower-authority behavior and should not be treated as the architectural source
 of truth.
 
+## Stage Certification
+
+Current governed run-artifact support is implemented for:
+
+- ingestion
+- triage
+- narrative
+
+Each run writes deterministic execution evidence under:
+
+```text
+{stage_output_root}/runs/{run_id}/
+```
+
+Required artifacts:
+
+- `run_summary.json`
+- `metrics.json`
+- `failures.jsonl`
+- `validation_report.json`
+- `_CERTIFIED` or `_FAILED`
+
+`run_id` uses the format `{stage}_{ISO8601}_{short_hash}`.
+Certification is rule-derived from `validation_report.json`; downstream stages
+reject uncertified upstream runs by default.
+
+At present, triage requires a certified ingestion run by default, and narrative
+requires a certified triage run by default. Extract and index should adopt the
+same run-artifact contract as they are normalized.
+
 ## Supported vs Out Of Scope
 
 Supported in this repository:

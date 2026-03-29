@@ -76,6 +76,13 @@ def test_run_docket_ingest_batch_writes_outputs_and_reuses_existing(
 
     assert text_path.read_text(encoding="utf-8") == "deterministic text"
     assert json.loads(metadata_path.read_text(encoding="utf-8")) == record
+    run_dirs = sorted(path for path in (output_root / "runs").iterdir() if path.is_dir())
+    assert len(run_dirs) == 1
+    run_summary = json.loads((run_dirs[0] / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["stage_name"] == "ingestion"
+    assert run_summary["validation_status"] == "passed"
+    assert run_summary["certification_status"] == "certified"
+    assert (run_dirs[0] / "_CERTIFIED").exists()
 
     def fail_if_called(path: Path) -> str:
         raise AssertionError("extract_pdf_text_with_warnings should not be called when outputs already exist")

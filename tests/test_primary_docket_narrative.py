@@ -18,12 +18,14 @@ def write_config(
     output_root: Path,
     *,
     overwrite_existing: bool,
+    require_certified_input: bool = False,
 ) -> None:
     config = {
         "primary_docket_narrative": {
             "input_root": str(input_root),
             "output_root": str(output_root),
             "overwrite_existing": overwrite_existing,
+            "require_certified_input": require_certified_input,
         }
     }
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -254,6 +256,13 @@ def test_run_primary_docket_narrative_batch_writes_one_selection_per_docket_and_
         "inferred_document_type": "external_reference",
         "selection_reason": "selected fallback available text",
     }
+    run_dirs = sorted(path for path in (output_root / "runs").iterdir() if path.is_dir())
+    assert len(run_dirs) == 1
+    run_summary = json.loads((run_dirs[0] / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["stage_name"] == "narrative"
+    assert run_summary["validation_status"] == "passed"
+    assert run_summary["certification_status"] == "certified"
+    assert (run_dirs[0] / "_CERTIFIED").exists()
 
     second_summary = run_primary_docket_narrative_batch(config_path)
 
@@ -263,3 +272,43 @@ def test_run_primary_docket_narrative_batch_writes_one_selection_per_docket_and_
         "reused_existing": 4,
         "failed": 0,
     }
+
+
+def test_run_primary_docket_narrative_batch_rejects_uncertified_input_by_default(
+    tmp_path: Path,
+) -> None:
+    input_root = tmp_path / "triage" / "document_types"
+    output_root = tmp_path / "triage" / "primary_docket_narratives"
+    config_path = tmp_path / "settings.yaml"
+
+    write_triage_artifact(
+        input_root,
+        docket_item_id="ntsb:docket_item:DCA00FP008:1:factual",
+        inferred_document_type="factual_report",
+        title="Operations Group - Factual Report",
+    )
+    write_config(
+        config_path,
+        input_root,
+        output_root,
+        overwrite_existing=False,
+        require_certified_input=True,
+    )
+
+    summary = run_primary_docket_narrative_batch(config_path)
+
+    assert summary == {
+        "dockets": 0,
+        "selected": 0,
+        "reused_existing": 0,
+        "failed": 0,
+    }
+    run_dirs = sorted(path for path in (output_root / "runs").iterdir() if path.is_dir())
+    assert len(run_dirs) == 1
+    run_summary = json.loads((run_dirs[0] / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["validation_status"] == "failed"
+    assert run_summary["certification_status"] == "failed"
+    blocking_issues = "\n".join(run_summary["blocking_issues"])
+    assert "No certified" in blocking_issues
+    assert "triage" in blocking_issues
+    assert (run_dirs[0] / "_FAILED").exists()

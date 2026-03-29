@@ -17,6 +17,7 @@ def write_config(
     output_root: Path,
     *,
     overwrite_existing: bool,
+    require_certified_input: bool = False,
     text_read_chars: int = 4000,
 ) -> None:
     config = {
@@ -25,6 +26,7 @@ def write_config(
             "text_root": str(text_root),
             "output_root": str(output_root),
             "overwrite_existing": overwrite_existing,
+            "require_certified_input": require_certified_input,
             "text_read_chars": text_read_chars,
         }
     }
@@ -324,6 +326,13 @@ def test_run_docket_triage_batch_writes_sidecar_and_reuses_existing(tmp_path: Pa
         "source_metadata_path": str(metadata_path),
         "source_text_path": str(text_path),
     }
+    run_dirs = sorted(path for path in (output_root / "runs").iterdir() if path.is_dir())
+    assert len(run_dirs) == 1
+    run_summary = json.loads((run_dirs[0] / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["stage_name"] == "triage"
+    assert run_summary["validation_status"] == "passed"
+    assert run_summary["certification_status"] == "certified"
+    assert (run_dirs[0] / "_CERTIFIED").exists()
 
     second_summary = run_docket_triage_batch(config_path)
 
@@ -375,3 +384,42 @@ def test_run_docket_triage_batch_reports_batch_counts_and_failures(
         f"[ERROR] {failed_id}: Source text artifact not found: {text_root / f'{failed_id}.txt'}"
         in output
     )
+
+
+def test_run_docket_triage_batch_rejects_uncertified_input_by_default(
+    tmp_path: Path,
+) -> None:
+    metadata_root = tmp_path / "metadata"
+    text_root = tmp_path / "extracted"
+    output_root = tmp_path / "triage" / "document_types"
+    config_path = tmp_path / "settings.yaml"
+    docket_item_id = "ntsb:docket_item:DCA00FP008:1:preliminary_report"
+
+    write_metadata(metadata_root, docket_item_id=docket_item_id, title="Preliminary Report")
+    write_text(text_root, docket_item_id=docket_item_id, text="PRELIMINARY REPORT")
+    write_config(
+        config_path,
+        metadata_root,
+        text_root,
+        output_root,
+        overwrite_existing=False,
+        require_certified_input=True,
+    )
+
+    summary = run_docket_triage_batch(config_path)
+
+    assert summary == {
+        "selected": 1,
+        "completed": 0,
+        "reused_existing": 0,
+        "failed": 0,
+    }
+    run_dirs = sorted(path for path in (output_root / "runs").iterdir() if path.is_dir())
+    assert len(run_dirs) == 1
+    run_summary = json.loads((run_dirs[0] / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["validation_status"] == "failed"
+    assert run_summary["certification_status"] == "failed"
+    blocking_issues = "\n".join(run_summary["blocking_issues"])
+    assert "No certified" in blocking_issues
+    assert "ingestion" in blocking_issues
+    assert (run_dirs[0] / "_FAILED").exists()
