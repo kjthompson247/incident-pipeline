@@ -4,4 +4,4 @@
 !.env.example
 # Python artifacts
 __pycache__/
-*.pyc
+*.pyc.vscode/
