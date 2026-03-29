@@ -50,6 +50,7 @@ Authoritative handoff to ingestion:
 Required lineage carried by that handoff:
 
 - `acquisition_run_id`
+- `acquisition_blob_path`
 - `project_id`
 - `ntsb_number`
 - `docket_item_id`
@@ -95,8 +96,15 @@ Authoritative operational truth:
 - `documents` rows in the manifest SQLite database
 
 When registration consumes an acquisition export snapshot, authoritative
-`documents` rows should preserve the upstream acquisition identifiers and the
-resolved `acquisition_manifest_path` used for the handoff.
+`documents` rows should preserve the upstream acquisition identifiers, the
+resolved `acquisition_manifest_path` used for the handoff, and the resolved
+blob-backed artifact path used as the authoritative registration input.
+
+Registration should be manifest-driven when that handoff is present:
+
+- primary candidate source: acquisition export manifest rows
+- primary artifact reference: resolved blob/content path for each manifest row
+- raw-scan fallback: compatibility mode only when no governed handoff is available
 
 Derived artifacts:
 

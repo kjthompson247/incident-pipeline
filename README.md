@@ -61,8 +61,8 @@ External-drive usage is supported by pointing the configured data root at that m
 The canonical metadata model is governed stage records, not ad hoc sidecars.
 
 - Acquisition authority lives in acquisition SQLite current-state tables plus append-only acquisition manifests.
-- Registration should consume the immutable acquisition export snapshot when available and preserve
-  acquisition lineage in manifest DB `documents` rows.
+- Registration is manifest-driven: it should consume the immutable acquisition export snapshot as
+  the primary candidate source and preserve acquisition lineage in manifest DB `documents` rows.
 - Ingestion, triage, and narrative JSON outputs are governed stage records consumed downstream.
 - Extract and structure authority lives in the manifest SQLite database, with file outputs treated as derived artifacts referenced by that DB.
 - Mutable convenience files such as `ingestion_manifest_latest.jsonl`, HTML feedback reports, and debug outputs are not co-equal sources of truth.
@@ -100,9 +100,17 @@ uv run python scripts/run_structure.py
 ```
 
 When `docket_ingest.manifest_path` points at an acquisition export snapshot,
-`incident_pipeline.ingestion.register_reports` preserves acquisition identifiers
-such as `project_id`, `ntsb_number`, `docket_item_id`, `source_url`, and
-`acquisition_run_id` in the manifest DB for downstream auditability.
+`incident_pipeline.ingestion.register_reports` uses that governed manifest as
+its primary registration input. It resolves SHA/blob-backed artifacts from the
+manifest, registers them even when there is no convenient report filename under
+`raw/`, and preserves acquisition identifiers such as `project_id`,
+`ntsb_number`, `docket_item_id`, `source_url`, and `acquisition_run_id` in the
+manifest DB for downstream auditability.
+
+If no acquisition export snapshot is configured or available, registration
+falls back to a raw filesystem scan for compatibility only. That fallback is
+lower-authority behavior and should not be treated as the architectural source
+of truth.
 
 ## Supported vs Out Of Scope
 

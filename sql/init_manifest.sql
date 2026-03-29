@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS documents (
     source_url TEXT,
     acquisition_run_id TEXT,
     acquisition_manifest_path TEXT,
+    acquisition_blob_path TEXT,
     project_id TEXT,
     ntsb_number TEXT,
     docket_item_id TEXT,

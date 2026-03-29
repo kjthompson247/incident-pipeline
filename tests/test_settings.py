@@ -22,6 +22,7 @@ def test_load_settings_expands_env_placeholders(tmp_path: Path, monkeypatch) -> 
         encoding="utf-8",
     )
 
+    monkeypatch.delenv("INCIDENT_PIPELINE_NTSB_SOURCE_ROOT", raising=False)
     monkeypatch.setenv("INCIDENT_PIPELINE_DATA_ROOT", "./custom-data")
 
     settings = load_settings(config_path)

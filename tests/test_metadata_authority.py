@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -50,6 +51,21 @@ def write_register_config(
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
 
 
+def write_acquisition_blob(acquisition_root: Path, content: bytes) -> tuple[Path, str]:
+    blob_sha = hashlib.sha256(content).hexdigest()
+    blob_path = (
+        acquisition_root
+        / "blobs"
+        / "sha256"
+        / blob_sha[:2]
+        / blob_sha[2:4]
+        / blob_sha
+    )
+    blob_path.parent.mkdir(parents=True, exist_ok=True)
+    blob_path.write_bytes(content)
+    return blob_path, blob_sha
+
+
 def test_register_reports_uses_deterministic_sha_based_doc_id(
     tmp_path: Path,
     monkeypatch,
@@ -90,21 +106,18 @@ def test_register_reports_uses_deterministic_sha_based_doc_id(
     assert first_row[0] == second_row[0] == f"doc:sha256:{first_row[1]}"
 
 
-def test_register_reports_preserves_acquisition_lineage_from_manifest_snapshot(
+def test_register_reports_registers_manifest_blob_without_raw_scan_candidate(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     raw_root = tmp_path / "raw"
     raw_root.mkdir(parents=True, exist_ok=True)
-    raw_path = raw_root / "ntsb" / "promoted.pdf"
-    raw_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_path.write_bytes(b"%PDF-1.4\nlineage\n")
-    raw_sha = register_reports.sha256_file(raw_path)
-
     db_path = tmp_path / "manifest.db"
     init_manifest_db(db_path)
 
+    acquisition_root = tmp_path / "acquisition"
+    blob_path, raw_sha = write_acquisition_blob(acquisition_root, b"%PDF-1.4\nlineage\n")
     manifest_path = tmp_path / "acquisition" / "exports" / "ingestion_manifest_run-123.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
@@ -119,7 +132,7 @@ def test_register_reports_preserves_acquisition_lineage_from_manifest_snapshot(
                 "view_url": "https://example.test/view/operations",
                 "source_url": "https://example.test/operations.pdf",
                 "blob_sha256": raw_sha,
-                "blob_path": str(tmp_path / "acquisition" / "blobs" / "sha256" / raw_sha),
+                "blob_path": str(blob_path),
                 "media_type": "application/pdf",
             }
         )
@@ -137,7 +150,7 @@ def test_register_reports_preserves_acquisition_lineage_from_manifest_snapshot(
 
     monkeypatch.setattr(register_reports, "CONFIG_PATH", config_path)
     register_reports.main()
-    capsys.readouterr()
+    output = capsys.readouterr().out
 
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
@@ -147,11 +160,13 @@ def test_register_reports_preserves_acquisition_lineage_from_manifest_snapshot(
                 source_url,
                 acquisition_run_id,
                 acquisition_manifest_path,
+                acquisition_blob_path,
                 project_id,
                 ntsb_number,
                 docket_item_id,
                 view_url,
                 blob_sha256,
+                raw_path,
                 sha256
             FROM documents
             """
@@ -162,12 +177,16 @@ def test_register_reports_preserves_acquisition_lineage_from_manifest_snapshot(
     assert row[1] == "https://example.test/operations.pdf"
     assert row[2] == "run-123"
     assert row[3] == str(manifest_path.resolve())
-    assert row[4] == "101"
-    assert row[5] == "DCA24FM001"
-    assert row[6] == "ntsb:docket_item:DCA24FM001:1:operations_report"
-    assert row[7] == "https://example.test/view/operations"
-    assert row[8] == raw_sha
+    assert row[4] == str(blob_path.resolve())
+    assert row[5] == "101"
+    assert row[6] == "DCA24FM001"
+    assert row[7] == "ntsb:docket_item:DCA24FM001:1:operations_report"
+    assert row[8] == "https://example.test/view/operations"
     assert row[9] == raw_sha
+    assert row[10] == str(blob_path.resolve())
+    assert row[11] == raw_sha
+    assert "Manifest candidates:          1" in output
+    assert "Raw-scan candidates:          0" in output
 
 
 def test_register_reports_backfills_lineage_for_existing_documents(
@@ -179,7 +198,8 @@ def test_register_reports_backfills_lineage_for_existing_documents(
     raw_root.mkdir(parents=True, exist_ok=True)
     raw_path = raw_root / "ntsb" / "promoted.pdf"
     raw_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_path.write_bytes(b"%PDF-1.4\nlineage-backfill\n")
+    content = b"%PDF-1.4\nlineage-backfill\n"
+    raw_path.write_bytes(content)
     raw_sha = register_reports.sha256_file(raw_path)
 
     db_path = tmp_path / "manifest.db"
@@ -191,6 +211,9 @@ def test_register_reports_backfills_lineage_for_existing_documents(
     register_reports.main()
     capsys.readouterr()
 
+    acquisition_root = tmp_path / "acquisition"
+    blob_path, blob_sha = write_acquisition_blob(acquisition_root, content)
+    assert blob_sha == raw_sha
     manifest_path = tmp_path / "acquisition" / "exports" / "ingestion_manifest_run-456.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
@@ -205,7 +228,7 @@ def test_register_reports_backfills_lineage_for_existing_documents(
                 "view_url": "https://example.test/view/systems",
                 "source_url": "https://example.test/systems.pdf",
                 "blob_sha256": raw_sha,
-                "blob_path": str(tmp_path / "acquisition" / "blobs" / "sha256" / raw_sha),
+                "blob_path": str(blob_path),
                 "media_type": "application/pdf",
             }
         )
@@ -232,11 +255,13 @@ def test_register_reports_backfills_lineage_for_existing_documents(
                 source_url,
                 acquisition_run_id,
                 acquisition_manifest_path,
+                acquisition_blob_path,
                 project_id,
                 ntsb_number,
                 docket_item_id,
                 view_url,
-                blob_sha256
+                blob_sha256,
+                raw_path
             FROM documents
             """
         ).fetchone()
@@ -245,12 +270,89 @@ def test_register_reports_backfills_lineage_for_existing_documents(
     assert row[0] == "https://example.test/systems.pdf"
     assert row[1] == "run-456"
     assert row[2] == str(manifest_path.resolve())
-    assert row[3] == "202"
-    assert row[4] == "DCA24FM002"
-    assert row[5] == "ntsb:docket_item:DCA24FM002:2:systems_report"
-    assert row[6] == "https://example.test/view/systems"
-    assert row[7] == raw_sha
-    assert "Lineage backfilled:     1" in second_output
+    assert row[3] == str(blob_path.resolve())
+    assert row[4] == "202"
+    assert row[5] == "DCA24FM002"
+    assert row[6] == "ntsb:docket_item:DCA24FM002:2:systems_report"
+    assert row[7] == "https://example.test/view/systems"
+    assert row[8] == raw_sha
+    assert row[9] == str(blob_path.resolve())
+    assert "Lineage backfilled:           1" in second_output
+
+
+def test_register_reports_deterministically_skips_duplicate_manifest_blobs(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    raw_root = tmp_path / "raw"
+    raw_root.mkdir(parents=True, exist_ok=True)
+    db_path = tmp_path / "manifest.db"
+    init_manifest_db(db_path)
+
+    acquisition_root = tmp_path / "acquisition"
+    blob_path, blob_sha = write_acquisition_blob(acquisition_root, b"%PDF-1.4\nduplicate\n")
+    manifest_path = tmp_path / "acquisition" / "exports" / "ingestion_manifest_run-dup.jsonl"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    records = [
+        {
+            "project_id": "301",
+            "ntsb_number": "DCA24FM003",
+            "docket_item_id": "ntsb:docket_item:DCA24FM003:1:first",
+            "acquisition_run_id": "run-dup",
+            "ordinal": 1,
+            "title": "First Copy",
+            "view_url": "https://example.test/view/first",
+            "source_url": "https://example.test/first.pdf",
+            "blob_sha256": blob_sha,
+            "blob_path": str(blob_path),
+            "media_type": "application/pdf",
+        },
+        {
+            "project_id": "301",
+            "ntsb_number": "DCA24FM003",
+            "docket_item_id": "ntsb:docket_item:DCA24FM003:2:second",
+            "acquisition_run_id": "run-dup",
+            "ordinal": 2,
+            "title": "Second Copy",
+            "view_url": "https://example.test/view/second",
+            "source_url": "https://example.test/second.pdf",
+            "blob_sha256": blob_sha,
+            "blob_path": str(blob_path),
+            "media_type": "application/pdf",
+        },
+    ]
+    manifest_path.write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+    config_path = tmp_path / "settings.yaml"
+    write_register_config(
+        config_path,
+        db_path=db_path,
+        raw_root=raw_root,
+        manifest_path=manifest_path,
+    )
+
+    monkeypatch.setattr(register_reports, "CONFIG_PATH", config_path)
+    register_reports.main()
+    output = capsys.readouterr().out
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT docket_item_id, source_url, raw_path, sha256 FROM documents ORDER BY doc_id"
+        ).fetchall()
+
+    assert rows == [
+        (
+            "ntsb:docket_item:DCA24FM003:1:first",
+            "https://example.test/first.pdf",
+            str(blob_path.resolve()),
+            blob_sha,
+        )
+    ]
+    assert "Skipped duplicate manifest:   1" in output
 
 
 def test_extract_and_structure_record_output_paths_in_manifest_db(
