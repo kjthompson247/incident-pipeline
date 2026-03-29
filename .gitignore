@@ -1,0 +1,7 @@
+# Environment variables (local only)
+.env
+.env.*
+!.env.example
+# Python artifacts
+__pycache__/
+*.pyc
