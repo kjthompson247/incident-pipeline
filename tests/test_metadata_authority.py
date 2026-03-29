@@ -27,7 +27,16 @@ The pilot's decision to continue visual flight into instrument meteorological co
 """
 
 
+def namespace_root(storage_root: Path) -> Path:
+    return storage_root / "ntsb"
+
+
+def relpath(path: Path, storage_root: Path) -> str:
+    return str(path.relative_to(namespace_root(storage_root)))
+
+
 def init_manifest_db(db_path: Path) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SQL_FILE.read_text(encoding="utf-8"))
     conn.commit()
@@ -41,13 +50,19 @@ def write_register_config(
     raw_root: Path,
     manifest_path: Path | None = None,
 ) -> None:
+    storage_root = config_path.parent
     config = {
-        "database": {"manifest_path": str(db_path)},
-        "paths": {"raw": str(raw_root)},
+        "paths": {
+            "storage_root": str(storage_root),
+            "storage_namespace": "ntsb",
+            "raw": relpath(raw_root, storage_root),
+            "processed": "extract",
+        },
+        "database": {"manifest_path": relpath(db_path, storage_root)},
         "ingestion": {"allowed_extensions": [".pdf"]},
     }
     if manifest_path is not None:
-        config["docket_ingest"] = {"manifest_path": str(manifest_path)}
+        config["docket_ingest"] = {"manifest_path": relpath(manifest_path, storage_root)}
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
 
 
@@ -71,14 +86,15 @@ def test_register_reports_uses_deterministic_sha_based_doc_id(
     monkeypatch,
     capsys,
 ) -> None:
-    raw_root = tmp_path / "raw"
+    namespaced_root = namespace_root(tmp_path)
+    raw_root = namespaced_root / "raw"
     raw_root.mkdir(parents=True, exist_ok=True)
     pdf_path = raw_root / "ntsb" / "example.pdf"
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     pdf_path.write_bytes(b"%PDF-1.4\nexample\n")
 
-    first_db_path = tmp_path / "first.db"
-    second_db_path = tmp_path / "second.db"
+    first_db_path = namespaced_root / "first.db"
+    second_db_path = namespaced_root / "second.db"
     init_manifest_db(first_db_path)
     init_manifest_db(second_db_path)
 
@@ -111,14 +127,15 @@ def test_register_reports_registers_manifest_blob_without_raw_scan_candidate(
     monkeypatch,
     capsys,
 ) -> None:
-    raw_root = tmp_path / "raw"
+    namespaced_root = namespace_root(tmp_path)
+    raw_root = namespaced_root / "raw"
     raw_root.mkdir(parents=True, exist_ok=True)
-    db_path = tmp_path / "manifest.db"
+    db_path = namespaced_root / "manifest.db"
     init_manifest_db(db_path)
 
-    acquisition_root = tmp_path / "acquisition"
+    acquisition_root = namespaced_root / "acquisition"
     blob_path, raw_sha = write_acquisition_blob(acquisition_root, b"%PDF-1.4\nlineage\n")
-    manifest_path = tmp_path / "acquisition" / "exports" / "ingestion_manifest_run-123.jsonl"
+    manifest_path = namespaced_root / "acquisition" / "exports" / "ingestion_manifest_run-123.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
         json.dumps(
@@ -194,7 +211,8 @@ def test_register_reports_backfills_lineage_for_existing_documents(
     monkeypatch,
     capsys,
 ) -> None:
-    raw_root = tmp_path / "raw"
+    namespaced_root = namespace_root(tmp_path)
+    raw_root = namespaced_root / "raw"
     raw_root.mkdir(parents=True, exist_ok=True)
     raw_path = raw_root / "ntsb" / "promoted.pdf"
     raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -202,7 +220,7 @@ def test_register_reports_backfills_lineage_for_existing_documents(
     raw_path.write_bytes(content)
     raw_sha = register_reports.sha256_file(raw_path)
 
-    db_path = tmp_path / "manifest.db"
+    db_path = namespaced_root / "manifest.db"
     init_manifest_db(db_path)
 
     first_config_path = tmp_path / "first-settings.yaml"
@@ -211,10 +229,10 @@ def test_register_reports_backfills_lineage_for_existing_documents(
     register_reports.main()
     capsys.readouterr()
 
-    acquisition_root = tmp_path / "acquisition"
+    acquisition_root = namespaced_root / "acquisition"
     blob_path, blob_sha = write_acquisition_blob(acquisition_root, content)
     assert blob_sha == raw_sha
-    manifest_path = tmp_path / "acquisition" / "exports" / "ingestion_manifest_run-456.jsonl"
+    manifest_path = namespaced_root / "acquisition" / "exports" / "ingestion_manifest_run-456.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
         json.dumps(
@@ -285,14 +303,15 @@ def test_register_reports_deterministically_skips_duplicate_manifest_blobs(
     monkeypatch,
     capsys,
 ) -> None:
-    raw_root = tmp_path / "raw"
+    namespaced_root = namespace_root(tmp_path)
+    raw_root = namespaced_root / "raw"
     raw_root.mkdir(parents=True, exist_ok=True)
-    db_path = tmp_path / "manifest.db"
+    db_path = namespaced_root / "manifest.db"
     init_manifest_db(db_path)
 
-    acquisition_root = tmp_path / "acquisition"
+    acquisition_root = namespaced_root / "acquisition"
     blob_path, blob_sha = write_acquisition_blob(acquisition_root, b"%PDF-1.4\nduplicate\n")
-    manifest_path = tmp_path / "acquisition" / "exports" / "ingestion_manifest_run-dup.jsonl"
+    manifest_path = namespaced_root / "acquisition" / "exports" / "ingestion_manifest_run-dup.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     records = [
         {
@@ -359,9 +378,11 @@ def test_extract_and_structure_record_output_paths_in_manifest_db(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    db_path = tmp_path / "manifest.db"
-    processed_root = tmp_path / "processed"
-    raw_path = tmp_path / "raw.pdf"
+    namespaced_root = namespace_root(tmp_path)
+    db_path = namespaced_root / "manifest.db"
+    processed_root = namespaced_root / "processed"
+    raw_path = namespaced_root / "raw.pdf"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path.write_bytes(b"%PDF-1.4\n")
     init_manifest_db(db_path)
 
@@ -394,11 +415,16 @@ def test_extract_and_structure_record_output_paths_in_manifest_db(
     conn.close()
 
     config_path = tmp_path / "settings.yaml"
+    storage_root = tmp_path
     config_path.write_text(
         yaml.safe_dump(
             {
-                "database": {"manifest_path": str(db_path)},
-                "paths": {"processed": str(processed_root)},
+                "paths": {
+                    "storage_root": str(storage_root),
+                    "storage_namespace": "ntsb",
+                    "processed": relpath(processed_root, storage_root),
+                },
+                "database": {"manifest_path": relpath(db_path, storage_root)},
                 "processing": {"overwrite_existing": False},
                 "extraction": {"min_text_threshold": 0},
                 "ocr": {"enabled": False},

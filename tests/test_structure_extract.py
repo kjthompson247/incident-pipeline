@@ -175,7 +175,16 @@ Final probable cause statement.
 """
 
 
+def namespace_root(storage_root: Path) -> Path:
+    return storage_root / "ntsb"
+
+
+def relpath(path: Path, storage_root: Path) -> str:
+    return str(path.relative_to(namespace_root(storage_root)))
+
+
 def init_manifest(db_path: Path, *, include_extracted_text_path: bool = False) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SQL_FILE.read_text(encoding="utf-8"))
 
@@ -192,9 +201,14 @@ def init_manifest(db_path: Path, *, include_extracted_text_path: bool = False) -
 
 
 def write_config(config_path: Path, db_path: Path, processed_root: Path, *, overwrite_existing: bool) -> None:
+    storage_root = config_path.parent
     config = {
-        "database": {"manifest_path": str(db_path)},
-        "paths": {"processed": str(processed_root)},
+        "paths": {
+            "storage_root": str(storage_root),
+            "storage_namespace": "ntsb",
+            "processed": relpath(processed_root, storage_root),
+        },
+        "database": {"manifest_path": relpath(db_path, storage_root)},
         "processing": {"overwrite_existing": overwrite_existing},
     }
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -264,10 +278,11 @@ def fetch_document_output_paths(db_path: Path, doc_id: str) -> tuple[str | None,
 
 
 def test_run_structure_batch_prefers_manifest_text_path(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
-    manifest_text_path = tmp_path / "custom" / "doc-1.txt"
+    manifest_text_path = namespaced_root / "custom" / "doc-1.txt"
     manifest_text_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_text_path.write_text(SAMPLE_TEXT, encoding="utf-8")
 
@@ -325,8 +340,9 @@ def test_run_structure_batch_prefers_manifest_text_path(tmp_path: Path) -> None:
 
 
 def test_run_structure_batch_falls_back_to_deterministic_text_path(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-2.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -354,8 +370,9 @@ def test_run_structure_batch_falls_back_to_deterministic_text_path(tmp_path: Pat
 
 
 def test_run_structure_batch_leaves_recommendations_null_when_absent(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-no-recs.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -385,8 +402,9 @@ def test_run_structure_batch_leaves_recommendations_null_when_absent(tmp_path: P
 
 
 def test_run_structure_batch_reuses_existing_artifact(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     output_path = processed_root / "structured" / "doc-3.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -409,8 +427,9 @@ def test_run_structure_batch_reuses_existing_artifact(tmp_path: Path) -> None:
 
 
 def test_run_structure_batch_captures_pipeline_specific_headings(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-pipeline.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -456,8 +475,9 @@ def test_run_structure_batch_captures_pipeline_specific_headings(tmp_path: Path)
 
 
 def test_run_structure_batch_captures_recommendation_heading_variants(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-variant.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -488,8 +508,9 @@ def test_run_structure_batch_captures_recommendation_heading_variants(tmp_path: 
 
 
 def test_run_structure_batch_bounds_probable_cause_before_signoff(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-pc-signoff.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -518,8 +539,9 @@ def test_run_structure_batch_bounds_probable_cause_before_signoff(tmp_path: Path
 
 
 def test_run_structure_batch_renders_only_last_probable_cause_chunk(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-pc-last-chunk.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -555,8 +577,9 @@ def test_run_structure_batch_renders_only_last_probable_cause_chunk(tmp_path: Pa
 def test_run_structure_batch_bounds_recommendations_before_appendix_and_references(
     tmp_path: Path,
 ) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-rec-appendix.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -585,8 +608,9 @@ def test_run_structure_batch_bounds_recommendations_before_appendix_and_referenc
 def test_run_structure_batch_keeps_conclusions_body_between_recognized_headings(
     tmp_path: Path,
 ) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
     extracted_text_path = processed_root / "extracted" / "doc-conclusions.txt"
     extracted_text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -616,8 +640,9 @@ def test_run_structure_batch_keeps_conclusions_body_between_recognized_headings(
 
 
 def test_run_structure_batch_marks_missing_input_as_failed(tmp_path: Path) -> None:
-    processed_root = tmp_path / "processed"
-    db_path = tmp_path / "manifest.db"
+    namespaced_root = namespace_root(tmp_path)
+    processed_root = namespaced_root / "processed"
+    db_path = namespaced_root / "manifest.db"
     config_path = tmp_path / "settings.yaml"
 
     init_manifest(db_path)

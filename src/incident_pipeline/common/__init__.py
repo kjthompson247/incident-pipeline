@@ -1,18 +1,29 @@
 from incident_pipeline.common.paths import (
-    DEFAULT_NTSB_SOURCE_ROOT,
     DEFAULT_SETTINGS_PATH,
+    DEFAULT_STORAGE_NAMESPACE,
     NTSBSourcePaths,
     REPO_ROOT,
     build_ntsb_source_paths,
     default_canonical_data_root,
     default_ntsb_source_root,
+    require_storage_namespace,
+    require_storage_root,
     resolve_repo_path,
+    resolve_storage_namespace_root,
+    resolve_storage_path,
 )
-from incident_pipeline.common.settings import SETTINGS_PATH_ENV_VAR, load_settings, resolve_settings_path
+from incident_pipeline.common.settings import (
+    SETTINGS_PATH_ENV_VAR,
+    load_settings,
+    resolve_settings_path,
+    storage_namespace_from_settings,
+    resolve_storage_setting,
+    storage_root_from_settings,
+)
 
 __all__ = [
-    "DEFAULT_NTSB_SOURCE_ROOT",
     "DEFAULT_SETTINGS_PATH",
+    "DEFAULT_STORAGE_NAMESPACE",
     "NTSBSourcePaths",
     "REPO_ROOT",
     "build_ntsb_source_paths",
@@ -22,4 +33,11 @@ __all__ = [
     "load_settings",
     "resolve_settings_path",
     "resolve_repo_path",
+    "resolve_storage_path",
+    "resolve_storage_namespace_root",
+    "require_storage_root",
+    "require_storage_namespace",
+    "storage_root_from_settings",
+    "storage_namespace_from_settings",
+    "resolve_storage_setting",
 ]

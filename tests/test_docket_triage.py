@@ -10,6 +10,14 @@ from incident_pipeline.triage.document_type import infer_document_type
 from incident_pipeline.triage.docket_triage import run_docket_triage_batch
 
 
+def namespace_root(storage_root: Path) -> Path:
+    return storage_root / "ntsb"
+
+
+def relpath(path: Path, storage_root: Path) -> str:
+    return str(path.relative_to(namespace_root(storage_root)))
+
+
 def write_config(
     config_path: Path,
     metadata_root: Path,
@@ -20,11 +28,16 @@ def write_config(
     require_certified_input: bool = False,
     text_read_chars: int = 4000,
 ) -> None:
+    storage_root = config_path.parent
     config = {
+        "paths": {
+            "storage_root": str(storage_root),
+            "storage_namespace": "ntsb",
+        },
         "docket_triage": {
-            "metadata_root": str(metadata_root),
-            "text_root": str(text_root),
-            "output_root": str(output_root),
+            "metadata_root": relpath(metadata_root, storage_root),
+            "text_root": relpath(text_root, storage_root),
+            "output_root": relpath(output_root, storage_root),
             "overwrite_existing": overwrite_existing,
             "require_certified_input": require_certified_input,
             "text_read_chars": text_read_chars,
@@ -285,9 +298,10 @@ def test_strong_title_match_wins_over_weaker_text_fallback() -> None:
 
 
 def test_run_docket_triage_batch_writes_sidecar_and_reuses_existing(tmp_path: Path) -> None:
-    metadata_root = tmp_path / "metadata"
-    text_root = tmp_path / "extracted"
-    output_root = tmp_path / "triage" / "document_types"
+    namespaced_root = namespace_root(tmp_path)
+    metadata_root = namespaced_root / "metadata"
+    text_root = namespaced_root / "extracted"
+    output_root = namespaced_root / "triage" / "document_types"
     config_path = tmp_path / "settings.yaml"
     docket_item_id = "ntsb:docket_item:DCA00FP008:1:preliminary_report"
 
@@ -347,9 +361,10 @@ def test_run_docket_triage_batch_writes_sidecar_and_reuses_existing(tmp_path: Pa
 def test_run_docket_triage_batch_reports_batch_counts_and_failures(
     tmp_path: Path, capsys
 ) -> None:
-    metadata_root = tmp_path / "metadata"
-    text_root = tmp_path / "extracted"
-    output_root = tmp_path / "triage" / "document_types"
+    namespaced_root = namespace_root(tmp_path)
+    metadata_root = namespaced_root / "metadata"
+    text_root = namespaced_root / "extracted"
+    output_root = namespaced_root / "triage" / "document_types"
     config_path = tmp_path / "settings.yaml"
 
     completed_id = "ntsb:docket_item:DCA00FP008:1:factual_report"
@@ -389,9 +404,10 @@ def test_run_docket_triage_batch_reports_batch_counts_and_failures(
 def test_run_docket_triage_batch_rejects_uncertified_input_by_default(
     tmp_path: Path,
 ) -> None:
-    metadata_root = tmp_path / "metadata"
-    text_root = tmp_path / "extracted"
-    output_root = tmp_path / "triage" / "document_types"
+    namespaced_root = namespace_root(tmp_path)
+    metadata_root = namespaced_root / "metadata"
+    text_root = namespaced_root / "extracted"
+    output_root = namespaced_root / "triage" / "document_types"
     config_path = tmp_path / "settings.yaml"
     docket_item_id = "ntsb:docket_item:DCA00FP008:1:preliminary_report"
 
@@ -420,6 +436,6 @@ def test_run_docket_triage_batch_rejects_uncertified_input_by_default(
     assert run_summary["validation_status"] == "failed"
     assert run_summary["certification_status"] == "failed"
     blocking_issues = "\n".join(run_summary["blocking_issues"])
-    assert "No certified" in blocking_issues
+    assert "No ingestion runs directory found" in blocking_issues
     assert "ingestion" in blocking_issues
     assert (run_dirs[0] / "_FAILED").exists()

@@ -26,7 +26,10 @@ sentence_spans_app = typer.Typer(
 )
 atomic_extract_app = typer.Typer(
     add_completion=False,
-    help="Run governed atomic extraction with an explicit transformer adapter.",
+    help=(
+        "Run governed atomic extraction with an explicit transformer adapter. "
+        "By default this consumes the latest certified sentence span run."
+    ),
 )
 
 
@@ -100,6 +103,13 @@ def _print_compact_summary(run_dir: Path, summary: dict[str, Any]) -> None:
         f"records_failed={summary['records_failed']} "
         f"primary_output_count={summary['primary_output_count']}"
     )
+    upstream_run_id = summary.get("upstream_run_id")
+    upstream_input_path = summary.get("upstream_input_path")
+    if upstream_run_id or upstream_input_path:
+        typer.echo(
+            f"upstream_run_id={upstream_run_id or '-'} "
+            f"upstream_input_path={upstream_input_path or '-'}"
+        )
     typer.echo(f"run_dir={run_dir}")
     blocking_issues = summary.get("blocking_issues") or []
     if blocking_issues:
@@ -156,6 +166,15 @@ def atomic_extract_command(
         "--transformer",
         help="Explicit transformer import path in the form package.module:callable_name",
     ),
+    input_path: Path | None = typer.Option(
+        None,
+        "--input-path",
+        help=(
+            "Optional override for a specific certified sentence_spans.jsonl file. "
+            "Defaults to the latest certified sentence span run under the configured "
+            "sentence_span_root."
+        ),
+    ),
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
@@ -165,7 +184,11 @@ def atomic_extract_command(
         cfg = load_atomic_config(config)
         output_root = resolve_atomic_output_root(cfg)
         before = _snapshot_runs(output_root)
-        run_atomic_extraction_batch(config, transform_span=transformer_callable)
+        run_atomic_extraction_batch(
+            config,
+            transform_span=transformer_callable,
+            input_path_override=input_path,
+        )
         run_dir = _find_created_run_dir(output_root, before)
         summary = _read_run_summary(run_dir, "atomic_run_summary.json")
         _print_compact_summary(run_dir, summary)

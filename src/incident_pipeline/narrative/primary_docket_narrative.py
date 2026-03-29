@@ -15,7 +15,8 @@ from incident_pipeline.common.stage_runs import (
     rule,
     sha256_file,
 )
-from incident_pipeline.triage.docket_triage import load_config, resolve_path, write_json_artifact
+from incident_pipeline.common.settings import resolve_storage_setting
+from incident_pipeline.triage.docket_triage import load_config, write_json_artifact
 
 
 TYPE_PRECEDENCE = (
@@ -306,8 +307,8 @@ def classify_failure(docket_id: str, message: str) -> StageFailure:
 def run_primary_docket_narrative_batch(config_path: Path | None = None) -> dict[str, int]:
     cfg = load_config(config_path)
     narrative_cfg = cfg["primary_docket_narrative"]
-    input_root = resolve_path(narrative_cfg["input_root"])
-    output_root = resolve_path(narrative_cfg["output_root"])
+    input_root = resolve_storage_setting(cfg, narrative_cfg["input_root"])
+    output_root = resolve_storage_setting(cfg, narrative_cfg["output_root"])
     overwrite_existing = bool(narrative_cfg.get("overwrite_existing", False))
     require_certified_input = bool(narrative_cfg.get("require_certified_input", True))
 

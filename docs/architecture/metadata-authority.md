@@ -17,20 +17,28 @@ Filesystem-adjacent convenience files are not co-equal authority.
 
 ## Storage Contract
 
-The pipeline depends on a configured data root, not on any specific machine,
+The pipeline depends on a configured storage root, not on any specific machine,
 mount point, or external drive.
 
-- The repo-local default is `data/` so a clean checkout can run without machine-specific edits.
-- Operators may point the pipeline at external storage by configuring a different data root.
+- `repo_root` is implicit and code-discovered.
+- `storage_root` is loaded from `INCIDENT_PIPELINE_DATA_ROOT` and must be absolute.
+- `storage_namespace` is a required relative namespace segment under `storage_root`.
+- All pipeline data paths derive from `storage_root / storage_namespace`.
+- Operators may point the pipeline at external storage by configuring a different `INCIDENT_PIPELINE_DATA_ROOT`.
 - External SSD usage is an operator profile, not the architectural truth.
-- The configured NTSB source root must be shared consistently across acquisition and downstream stages.
+- The NTSB source root is derived consistently as `{storage_root}/ntsb` across acquisition and downstream stages.
 
 Supported configuration surfaces today:
 
 - `INCIDENT_PIPELINE_DATA_ROOT`
-- `INCIDENT_PIPELINE_NTSB_SOURCE_ROOT`
 - `INCIDENT_PIPELINE_SETTINGS_PATH`
-- `NTSB_ACQUIRE_*` acquisition overrides
+- `NTSB_ACQUIRE_*` non-path acquisition overrides
+
+Unsupported path-specific overrides:
+
+- `NTSB_ACQUIRE_DATA_ROOT`
+- `NTSB_ACQUIRE_SQLITE_PATH`
+- `NTSB_ACQUIRE_DOWNSTREAM_RAW_ROOT`
 
 For reproducible downstream reruns, operators should prefer pinned snapshot inputs over mutable aliases.
 

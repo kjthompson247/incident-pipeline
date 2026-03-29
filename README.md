@@ -45,16 +45,33 @@ The first `uv sync` also requires access to PyPI or a configured internal packag
 
 ## Configuration
 
-The default operator config is [configs/settings.yaml](/Users/kellythompson/projects/incident-pipeline/configs/settings.yaml). By default it uses a repo-local data root at `data/ntsb`, not a machine-specific external disk path.
+The default operator config is [configs/settings.yaml](/Users/kellythompson/projects/incident-pipeline/configs/settings.yaml).
+
+Path model:
+
+- `repo_root` is implicit and code-discovered.
+- `storage_root` is the only environment-backed absolute data root.
+- `storage_namespace` is the required relative corpus/source namespace under `storage_root`.
+- The shared settings loader auto-loads a repo-local `.env` when present.
+- All pipeline data paths in `configs/settings.yaml` are relative subpaths under `paths.storage_root / paths.storage_namespace`.
+- Repo-owned assets such as config files and docs resolve from `repo_root`, not from `storage_root`.
 
 Supported overrides:
 
 - `INCIDENT_PIPELINE_DATA_ROOT`
-  Sets the repo-wide default data root used by acquisition defaults.
+  Required absolute storage root for all pipeline data.
 - `INCIDENT_PIPELINE_SETTINGS_PATH`
   Points the downstream stage scripts at an alternate YAML settings file.
 - `NTSB_ACQUIRE_*`
-  Acquisition CLI overrides such as `NTSB_ACQUIRE_DATA_ROOT`, `NTSB_ACQUIRE_SQLITE_PATH`, and `NTSB_ACQUIRE_DOWNSTREAM_RAW_ROOT`.
+  Acquisition runtime overrides for non-path settings such as log level and HTTP behavior.
+
+Unsupported path overrides:
+
+- `NTSB_ACQUIRE_DATA_ROOT`
+- `NTSB_ACQUIRE_SQLITE_PATH`
+- `NTSB_ACQUIRE_DOWNSTREAM_RAW_ROOT`
+
+Acquisition path layout is derived from `INCIDENT_PIPELINE_DATA_ROOT`; those old path-specific overrides now fail fast instead of introducing an alternate root model.
 
 Example:
 
@@ -63,7 +80,18 @@ export INCIDENT_PIPELINE_DATA_ROOT=/absolute/path/to/pipeline-data
 uv run ntsb-acquire doctor
 ```
 
-External-drive usage is supported by pointing the configured data root at that mount. The code depends on a configured storage root, not on any specific device name or one operator's machine.
+The shipped settings file uses:
+
+- `paths.storage_root: "${INCIDENT_PIPELINE_DATA_ROOT}"`
+- `paths.storage_namespace: "ntsb"`
+
+So current NTSB data resolves under:
+
+```text
+{storage_root}/ntsb/...
+```
+
+External-drive usage is supported by pointing `INCIDENT_PIPELINE_DATA_ROOT` at that mount. The code depends on a configured storage root and a relative namespace, not on any specific device name or one operator's machine.
 
 ## Metadata Authority
 
@@ -76,7 +104,7 @@ The canonical metadata model is governed stage records, not ad hoc sidecars.
 - Extract and structure authority lives in the manifest SQLite database, with file outputs treated as derived artifacts referenced by that DB.
 - Mutable convenience files such as `ingestion_manifest_latest.jsonl`, HTML feedback reports, and debug outputs are not co-equal sources of truth.
 
-For reproducible ingestion reruns, point `INCIDENT_PIPELINE_INGESTION_MANIFEST_PATH` at a specific `ingestion_manifest_<run_id>.jsonl` snapshot when possible instead of relying on the mutable `ingestion_manifest_latest.jsonl` alias.
+For reproducible ingestion reruns, point `docket_ingest.manifest_path` in your settings file at a specific `ingestion_manifest_<run_id>.jsonl` snapshot when possible instead of relying on the mutable `ingestion_manifest_latest.jsonl` alias.
 
 ## Operator Flow
 
@@ -108,7 +136,19 @@ uv run atomic-extract --config path/to/settings.yaml --transformer package.modul
 
 `sentence-span-generate` is deterministic and model-free.
 `atomic-extract` requires an explicit transformer import path; the repository
-does not silently provide a production model adapter.
+does not silently provide a production model adapter. By default it discovers
+the latest certified SentenceSpan run under
+`extract/sentence_spans/runs/` and consumes
+`<run_dir>/sentence_spans.jsonl` as the authoritative upstream input.
+For debugging or manual replay only, you may pin a specific certified upstream
+file with:
+
+```bash
+uv run atomic-extract \
+  --config path/to/settings.yaml \
+  --transformer package.module:callable_name \
+  --input-path /absolute/path/to/extract/sentence_spans/runs/<run_id>/sentence_spans.jsonl
+```
 
 Extract and structure use the manifest database flow. Initialize and populate it before running those stages:
 
@@ -193,4 +233,3 @@ OCR is disabled by default in the shipped config. If you explicitly enable it, q
 - `docs/source_contracts/sentence-span-generation-contract.md`
 - `docs/source_contracts/sentence-to-atomic-contract.md`
 - `MIGRATION_STATUS.md`
-# incident-pipeline

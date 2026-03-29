@@ -3,21 +3,16 @@ project:
   version: 0.1
 
 paths:
-  data_root: "${INCIDENT_PIPELINE_DATA_ROOT}"
-  source_root: "${INCIDENT_PIPELINE_NTSB_SOURCE_ROOT}"
-  raw: "${INCIDENT_PIPELINE_NTSB_RAW_ROOT}"
-  staged: "${INCIDENT_PIPELINE_NTSB_INGESTION_ROOT}"
-  processed: "${INCIDENT_PIPELINE_NTSB_EXTRACT_ROOT}"
-  manifests: "${INCIDENT_PIPELINE_NTSB_MANIFESTS_ROOT}"
-  logs: "${INCIDENT_PIPELINE_NTSB_LOGS_ROOT}"
+  storage_root: "${INCIDENT_PIPELINE_DATA_ROOT}"
+  storage_namespace: "ntsb"
+  raw: "raw"
+  staged: "ingestion"
+  processed: "extract"
+  manifests: "manifests"
+  logs: "logs"
 
 database:
-  manifest_path: "${INCIDENT_PIPELINE_MANIFEST_DB_PATH}"
-
-ntsb_acquisition:
-  data_root: "${NTSB_ACQUIRE_DATA_ROOT}"
-  sqlite_path: "${NTSB_ACQUIRE_SQLITE_PATH}"
-  downstream_raw_root: "${NTSB_ACQUIRE_DOWNSTREAM_RAW_ROOT}"
+  manifest_path: "manifests/manifest.db"
 
 ingestion:
   allowed_extensions:
@@ -39,23 +34,37 @@ processing:
   max_workers: 4
 
 docket_ingest:
-  manifest_path: "${INCIDENT_PIPELINE_INGESTION_MANIFEST_PATH}"
-  output_root: "${INCIDENT_PIPELINE_DOCKET_INGEST_OUTPUT_ROOT}"
+  manifest_path: "raw/acquisition/exports/ingestion_manifest_latest.jsonl"
+  output_root: "ingestion"
   overwrite_existing: false
 
 docket_triage:
-  metadata_root: "${INCIDENT_PIPELINE_DOCKET_TRIAGE_METADATA_ROOT}"
-  text_root: "${INCIDENT_PIPELINE_DOCKET_TRIAGE_TEXT_ROOT}"
-  output_root: "${INCIDENT_PIPELINE_DOCKET_TRIAGE_OUTPUT_ROOT}"
+  metadata_root: "ingestion/metadata"
+  text_root: "ingestion/extracted"
+  output_root: "triage/document_types"
   overwrite_existing: false
   require_certified_input: true
   text_read_chars: 4000
 
 primary_docket_narrative:
-  input_root: "${INCIDENT_PIPELINE_PRIMARY_NARRATIVE_INPUT_ROOT}"
-  output_root: "${INCIDENT_PIPELINE_PRIMARY_NARRATIVE_OUTPUT_ROOT}"
+  input_root: "triage/document_types"
+  output_root: "narrative/primary_docket_narratives"
   overwrite_existing: false
   require_certified_input: true
+
+sentence_span_generation:
+  output_root: "extract/sentence_spans"
+  segmentation_version: "sentence-split-v1"
+  include_context: true
+
+atomic_extraction:
+  sentence_span_root: "extract/sentence_spans"
+  output_root: "extract/atomic"
+  batch_size: 50
+  require_certified_input: true
+  model_contract_version: "sentence-to-atomic-v1"
+  ontology_version: "minimal-ontology-v0.2"
+  mapping_contract_version: "mapping-contract-v0.1"
 
 logging:
   level: INFO

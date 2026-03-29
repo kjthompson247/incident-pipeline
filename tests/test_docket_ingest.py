@@ -9,11 +9,24 @@ from incident_pipeline.ingestion import docket_ingest
 from incident_pipeline.ingestion.pdf_extract import PDFExtractionResult
 
 
+def namespace_root(storage_root: Path) -> Path:
+    return storage_root / "ntsb"
+
+
+def relpath(path: Path, storage_root: Path) -> str:
+    return str(path.relative_to(namespace_root(storage_root)))
+
+
 def write_config(config_path: Path, manifest_path: Path, output_root: Path, *, overwrite_existing: bool) -> None:
+    storage_root = config_path.parent
     config = {
+        "paths": {
+            "storage_root": str(storage_root),
+            "storage_namespace": "ntsb",
+        },
         "docket_ingest": {
-            "manifest_path": str(manifest_path),
-            "output_root": str(output_root),
+            "manifest_path": relpath(manifest_path, storage_root),
+            "output_root": relpath(output_root, storage_root),
             "overwrite_existing": overwrite_existing,
         }
     }
@@ -21,6 +34,7 @@ def write_config(config_path: Path, manifest_path: Path, output_root: Path, *, o
 
 
 def write_manifest(manifest_path: Path, blob_path: Path, *, docket_item_id: str) -> dict[str, object]:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "project_id": "53416",
         "ntsb_number": "DCA00FP008",
@@ -38,6 +52,7 @@ def write_manifest(manifest_path: Path, blob_path: Path, *, docket_item_id: str)
 
 
 def write_manifest_records(manifest_path: Path, records: list[dict[str, object]]) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [json.dumps(record) for record in records]
     manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -45,12 +60,14 @@ def write_manifest_records(manifest_path: Path, records: list[dict[str, object]]
 def test_run_docket_ingest_batch_writes_outputs_and_reuses_existing(
     tmp_path: Path, monkeypatch
 ) -> None:
-    manifest_path = tmp_path / "manifest.jsonl"
-    output_root = tmp_path / "ingestion"
+    namespaced_root = namespace_root(tmp_path)
+    manifest_path = namespaced_root / "manifest.jsonl"
+    output_root = namespaced_root / "ingestion"
     config_path = tmp_path / "settings.yaml"
-    blob_path = tmp_path / "blob.pdf"
+    blob_path = namespaced_root / "blob.pdf"
     docket_item_id = "ntsb:docket_item:DCA00FP008:1:dot_accident_report"
 
+    blob_path.parent.mkdir(parents=True, exist_ok=True)
     blob_path.write_bytes(b"%PDF-1.4\n")
     record = write_manifest(manifest_path, blob_path, docket_item_id=docket_item_id)
     write_config(config_path, manifest_path, output_root, overwrite_existing=False)
@@ -102,12 +119,14 @@ def test_run_docket_ingest_batch_writes_outputs_and_reuses_existing(
 def test_run_docket_ingest_batch_emits_record_scoped_warnings(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    manifest_path = tmp_path / "manifest.jsonl"
-    output_root = tmp_path / "ingestion"
+    namespaced_root = namespace_root(tmp_path)
+    manifest_path = namespaced_root / "manifest.jsonl"
+    output_root = namespaced_root / "ingestion"
     config_path = tmp_path / "settings.yaml"
-    blob_path = tmp_path / "warning.pdf"
+    blob_path = namespaced_root / "warning.pdf"
     docket_item_id = "ntsb:docket_item:DCA00FP008:3:warning"
 
+    blob_path.parent.mkdir(parents=True, exist_ok=True)
     blob_path.write_bytes(b"%PDF-1.4\n")
     write_manifest(manifest_path, blob_path, docket_item_id=docket_item_id)
     write_config(config_path, manifest_path, output_root, overwrite_existing=False)
@@ -140,12 +159,14 @@ def test_run_docket_ingest_batch_emits_record_scoped_warnings(
 def test_run_docket_ingest_batch_continues_after_whole_file_failure(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    manifest_path = tmp_path / "manifest.jsonl"
-    output_root = tmp_path / "ingestion"
+    namespaced_root = namespace_root(tmp_path)
+    manifest_path = namespaced_root / "manifest.jsonl"
+    output_root = namespaced_root / "ingestion"
     config_path = tmp_path / "settings.yaml"
-    broken_blob_path = tmp_path / "broken.pdf"
-    good_blob_path = tmp_path / "good.pdf"
+    broken_blob_path = namespaced_root / "broken.pdf"
+    good_blob_path = namespaced_root / "good.pdf"
 
+    broken_blob_path.parent.mkdir(parents=True, exist_ok=True)
     broken_blob_path.write_bytes(b"%PDF-1.4\n")
     good_blob_path.write_bytes(b"%PDF-1.4\n")
 

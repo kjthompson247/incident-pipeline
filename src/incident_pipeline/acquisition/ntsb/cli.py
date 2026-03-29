@@ -196,9 +196,6 @@ class _CollectReporter:
 
 def _config_overrides(
     *,
-    data_root: str | None,
-    sqlite_path: str | None,
-    downstream_raw_root: str | None,
     log_level: str | None,
     http_user_agent: str | None,
     http_rate_limit_per_second: float | None,
@@ -208,9 +205,6 @@ def _config_overrides(
     docket_base_url: str | None,
 ) -> dict[str, object | None]:
     return {
-        "data_root": data_root,
-        "sqlite_path": sqlite_path,
-        "downstream_raw_root": downstream_raw_root,
         "log_level": log_level,
         "http_user_agent": http_user_agent,
         "http_rate_limit_per_second": http_rate_limit_per_second,
@@ -224,9 +218,6 @@ def _config_overrides(
 @app.callback()
 def main(
     ctx: typer.Context,
-    data_root: str | None = typer.Option(None, help=CONFIG_HELP),
-    sqlite_path: str | None = typer.Option(None, help=CONFIG_HELP),
-    downstream_raw_root: str | None = typer.Option(None, help=CONFIG_HELP),
     log_level: str | None = typer.Option(None, help=CONFIG_HELP),
     http_user_agent: str | None = typer.Option(None, help=CONFIG_HELP),
     http_rate_limit_per_second: float | None = typer.Option(None),
@@ -238,16 +229,13 @@ def main(
 ) -> None:
     ctx.obj = {
         "carol_base_url": carol_base_url,
-        "data_root": data_root,
         "docket_base_url": docket_base_url,
-        "downstream_raw_root": downstream_raw_root,
         "env_file": env_file,
         "http_backoff_seconds": http_backoff_seconds,
         "http_max_retries": http_max_retries,
         "http_rate_limit_per_second": http_rate_limit_per_second,
         "http_user_agent": http_user_agent,
         "log_level": log_level,
-        "sqlite_path": sqlite_path,
     }
 
 
@@ -255,9 +243,6 @@ def _load_runtime_config(ctx: typer.Context) -> AppConfig:
     state = ctx.obj if isinstance(ctx.obj, dict) else {}
     return load_config(
         cli_overrides=_config_overrides(
-            data_root=state.get("data_root"),
-            sqlite_path=state.get("sqlite_path"),
-            downstream_raw_root=state.get("downstream_raw_root"),
             log_level=state.get("log_level"),
             http_user_agent=state.get("http_user_agent"),
             http_rate_limit_per_second=state.get("http_rate_limit_per_second"),

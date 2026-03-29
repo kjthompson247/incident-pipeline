@@ -75,6 +75,22 @@ def parse_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def load_run_summary_for_dir(run_dir: Path) -> dict[str, Any]:
+    summary_path = run_dir / "run_summary.json"
+    if summary_path.exists():
+        return read_json(summary_path)
+
+    alternate_summaries = sorted(run_dir.glob("*_run_summary.json"))
+    if len(alternate_summaries) == 1:
+        return read_json(alternate_summaries[0])
+    if len(alternate_summaries) > 1:
+        raise ValueError(
+            f"Multiple run summaries found under {run_dir}: "
+            f"{', '.join(path.name for path in alternate_summaries)}"
+        )
+    raise ValueError(f"No run summary found under {run_dir}")
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -530,30 +546,46 @@ def finalize_stage_run(
     )
 
 
-def load_latest_certified_run(stage_root: Path, *, expected_stage_name: str) -> dict[str, Any]:
+def load_latest_certified_run_with_dir(
+    stage_root: Path,
+    *,
+    expected_stage_name: str,
+) -> tuple[Path, dict[str, Any]]:
     runs_root = stage_root / "runs"
     if not runs_root.exists():
-        raise ValueError(f"No certified runs directory found for {expected_stage_name}: {runs_root}")
+        raise ValueError(f"No {expected_stage_name} runs directory found under {runs_root}")
 
-    certified_summaries: list[tuple[str, dict[str, Any]]] = []
-    for run_dir in sorted(path for path in runs_root.iterdir() if path.is_dir()):
-        summary_path = run_dir / "run_summary.json"
+    run_dirs = sorted(path for path in runs_root.iterdir() if path.is_dir())
+    if not run_dirs:
+        raise ValueError(f"No {expected_stage_name} runs found under {runs_root}")
+
+    certified_summaries: list[tuple[str, Path, dict[str, Any]]] = []
+    for run_dir in run_dirs:
         certified_path = run_dir / "_CERTIFIED"
-        if not summary_path.exists() or not certified_path.exists():
+        if not certified_path.exists():
             continue
-        payload = read_json(summary_path)
+        payload = load_run_summary_for_dir(run_dir)
         if payload.get("stage_name") != expected_stage_name:
             continue
         if payload.get("certification_status") != "certified":
             continue
         certified_key = str(payload.get("certified_at") or payload.get("timestamps", {}).get("end") or "")
-        certified_summaries.append((certified_key, payload))
+        certified_summaries.append((certified_key, run_dir, payload))
 
     if not certified_summaries:
         raise ValueError(f"No certified {expected_stage_name} runs found under {runs_root}")
 
-    certified_summaries.sort(key=lambda item: item[0])
-    return certified_summaries[-1][1]
+    certified_summaries.sort(key=lambda item: (item[0], item[1].name))
+    _, run_dir, payload = certified_summaries[-1]
+    return run_dir, payload
+
+
+def load_latest_certified_run(stage_root: Path, *, expected_stage_name: str) -> dict[str, Any]:
+    _, payload = load_latest_certified_run_with_dir(
+        stage_root,
+        expected_stage_name=expected_stage_name,
+    )
+    return payload
 
 
 def assert_certified_input(

@@ -12,13 +12,20 @@ Code is organized by stage under one canonical package:
 - `src/incident_pipeline/index/`
 - `src/incident_pipeline/common/`
 
-## Canonical Data Root
+## Canonical Roots
 
-By default the NTSB source root is:
+There are exactly two path bases in the repository:
 
-`data/ntsb`
+- `repo_root`: implicit, discovered by code, used only for repo-owned assets
+- `storage_root`: explicit, loaded from `INCIDENT_PIPELINE_DATA_ROOT`, used for all pipeline data
 
-Override it with `INCIDENT_PIPELINE_DATA_ROOT` or `INCIDENT_PIPELINE_NTSB_SOURCE_ROOT` when an operator needs data outside the repository working tree.
+Pipeline data then resolves through one required namespace layer:
+
+- `storage_namespace`: a single relative namespace segment such as `ntsb`
+
+The NTSB source root is therefore derived as:
+
+`{storage_root}/{storage_namespace}`
 
 ## Canonical NTSB Stage Roots
 
@@ -49,14 +56,14 @@ This keeps existing acquisition behavior deterministic while giving the unified 
 
 ## Shared Path Foundation
 
-`incident_pipeline.common.paths` is the canonical place for:
+`incident_pipeline.common.paths` and `incident_pipeline.common.settings` are the canonical places for:
 
 - repository root resolution
-- canonical config path resolution
-- canonical NTSB source root resolution
+- storage root validation
+- storage-relative config resolution
 - computed NTSB stage and acquisition working directories
 
-The configured data root is the architectural contract. Repo-local `data/` is the portable default, and external storage is an operator configuration choice rather than a hard-coded assumption.
+All storage-owned settings must be relative to `paths.storage_root / paths.storage_namespace`. Unresolved `${VAR}` placeholders fail fast, and data paths do not fall back to `repo_root`.
 
 ## Compatibility Strategy
 

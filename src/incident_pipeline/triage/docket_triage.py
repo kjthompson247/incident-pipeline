@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH, resolve_repo_path
-from incident_pipeline.common.settings import load_settings
+from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH
+from incident_pipeline.common.settings import load_settings, resolve_storage_setting
 from incident_pipeline.common.stage_runs import (
     StageFailure,
     StageFailurePolicy,
@@ -52,10 +52,6 @@ def load_config(config_path: Path | None = None) -> dict:
     resolved_config_path = config_path or CONFIG_PATH
     effective_path = None if resolved_config_path == DEFAULT_SETTINGS_PATH else resolved_config_path
     return load_settings(effective_path)
-
-
-def resolve_path(path_value: str) -> Path:
-    return resolve_repo_path(path_value)
 
 
 def make_summary(selected: int = 0) -> dict[str, int]:
@@ -276,9 +272,9 @@ def classify_failure(
 def run_docket_triage_batch(config_path: Path | None = None) -> dict[str, int]:
     cfg = load_config(config_path)
     triage_cfg = cfg["docket_triage"]
-    metadata_root = resolve_path(triage_cfg["metadata_root"])
-    text_root = resolve_path(triage_cfg["text_root"])
-    output_root = resolve_path(triage_cfg["output_root"])
+    metadata_root = resolve_storage_setting(cfg, triage_cfg["metadata_root"])
+    text_root = resolve_storage_setting(cfg, triage_cfg["text_root"])
+    output_root = resolve_storage_setting(cfg, triage_cfg["output_root"])
     overwrite_existing = bool(triage_cfg.get("overwrite_existing", False))
     text_read_chars = int(triage_cfg.get("text_read_chars", DEFAULT_TEXT_READ_CHARS))
     require_certified_input = bool(triage_cfg.get("require_certified_input", True))

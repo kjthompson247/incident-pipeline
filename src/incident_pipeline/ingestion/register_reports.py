@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH, resolve_repo_path
-from incident_pipeline.common.settings import load_settings
+from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH
+from incident_pipeline.common.settings import load_settings, resolve_storage_setting
 from incident_pipeline.ingestion.manifest_reader import iter_manifest_records
 
 CONFIG_PATH = DEFAULT_SETTINGS_PATH
@@ -147,15 +147,15 @@ def get_document_by_path(conn: sqlite3.Connection, raw_path: str) -> sqlite3.Row
     return cur.fetchone()
 
 
-def resolve_configured_path(path_value: str) -> Path:
-    return resolve_repo_path(path_value)
+def resolve_configured_path(cfg: dict, path_value: str) -> Path:
+    return resolve_storage_setting(cfg, path_value)
 
 
 def resolve_lineage_manifest_path(cfg: dict) -> Path | None:
     manifest_value = cfg.get("docket_ingest", {}).get("manifest_path")
     if not manifest_value:
         return None
-    return resolve_configured_path(manifest_value)
+    return resolve_configured_path(cfg, manifest_value)
 
 
 def load_acquisition_manifest_rows(manifest_path: Path) -> list[AcquisitionLineage]:
@@ -209,7 +209,7 @@ def iter_blob_resolution_candidates(
             return
         path = Path(path_value)
         if not path.is_absolute():
-            path = resolve_configured_path(path)
+            path = (resolve_storage_setting(cfg, "raw").parent / path).resolve()
         if path in seen:
             return
         seen.add(path)
@@ -220,16 +220,6 @@ def iter_blob_resolution_candidates(
     manifest_acquisition_root = manifest_path.parents[1]
     add(blob_store_path(manifest_acquisition_root / "blobs", lineage.blob_sha256))
     add(blob_store_path(raw_root / "acquisition" / "blobs", lineage.blob_sha256))
-
-    acquisition_cfg = cfg.get("ntsb_acquisition", {})
-    acquisition_data_root = acquisition_cfg.get("data_root")
-    if isinstance(acquisition_data_root, str) and acquisition_data_root:
-        add(
-            blob_store_path(
-                resolve_configured_path(acquisition_data_root) / "acquisition" / "blobs",
-                lineage.blob_sha256,
-            )
-        )
 
     return candidates
 
@@ -612,8 +602,8 @@ def register_raw_scan_candidates(
 def main() -> None:
     cfg = load_config()
 
-    db_path = resolve_configured_path(cfg["database"]["manifest_path"])
-    raw_root = resolve_configured_path(cfg["paths"]["raw"])
+    db_path = resolve_configured_path(cfg, cfg["database"]["manifest_path"])
+    raw_root = resolve_configured_path(cfg, cfg["paths"]["raw"])
     allowed_extensions = {extension.lower() for extension in cfg["ingestion"]["allowed_extensions"]}
     lineage_manifest_path = resolve_lineage_manifest_path(cfg)
 

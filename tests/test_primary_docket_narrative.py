@@ -12,6 +12,14 @@ from incident_pipeline.narrative.primary_docket_narrative import (
 )
 
 
+def namespace_root(storage_root: Path) -> Path:
+    return storage_root / "ntsb"
+
+
+def relpath(path: Path, storage_root: Path) -> str:
+    return str(path.relative_to(namespace_root(storage_root)))
+
+
 def write_config(
     config_path: Path,
     input_root: Path,
@@ -20,10 +28,15 @@ def write_config(
     overwrite_existing: bool,
     require_certified_input: bool = False,
 ) -> None:
+    storage_root = config_path.parent
     config = {
+        "paths": {
+            "storage_root": str(storage_root),
+            "storage_namespace": "ntsb",
+        },
         "primary_docket_narrative": {
-            "input_root": str(input_root),
-            "output_root": str(output_root),
+            "input_root": relpath(input_root, storage_root),
+            "output_root": relpath(output_root, storage_root),
             "overwrite_existing": overwrite_existing,
             "require_certified_input": require_certified_input,
         }
@@ -156,9 +169,10 @@ def test_select_primary_candidate_falls_back_to_available_text(tmp_path: Path) -
 def test_run_primary_docket_narrative_batch_writes_one_selection_per_docket_and_reuses_existing(
     tmp_path: Path,
 ) -> None:
-    input_root = tmp_path / "triage" / "document_types"
-    output_root = tmp_path / "triage" / "primary_docket_narratives"
-    text_root = tmp_path / "ingestion" / "extracted"
+    namespaced_root = namespace_root(tmp_path)
+    input_root = namespaced_root / "triage" / "document_types"
+    output_root = namespaced_root / "triage" / "primary_docket_narratives"
+    text_root = namespaced_root / "ingestion" / "extracted"
     config_path = tmp_path / "settings.yaml"
 
     write_text(text_root / "ntsb:docket_item:DCA00FP011:2:text.txt", "Available narrative text")
@@ -277,8 +291,9 @@ def test_run_primary_docket_narrative_batch_writes_one_selection_per_docket_and_
 def test_run_primary_docket_narrative_batch_rejects_uncertified_input_by_default(
     tmp_path: Path,
 ) -> None:
-    input_root = tmp_path / "triage" / "document_types"
-    output_root = tmp_path / "triage" / "primary_docket_narratives"
+    namespaced_root = namespace_root(tmp_path)
+    input_root = namespaced_root / "triage" / "document_types"
+    output_root = namespaced_root / "triage" / "primary_docket_narratives"
     config_path = tmp_path / "settings.yaml"
 
     write_triage_artifact(
@@ -309,6 +324,6 @@ def test_run_primary_docket_narrative_batch_rejects_uncertified_input_by_default
     assert run_summary["validation_status"] == "failed"
     assert run_summary["certification_status"] == "failed"
     blocking_issues = "\n".join(run_summary["blocking_issues"])
-    assert "No certified" in blocking_issues
+    assert "No triage runs directory found" in blocking_issues
     assert "triage" in blocking_issues
     assert (run_dirs[0] / "_FAILED").exists()

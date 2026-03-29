@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 import sqlite3
 
-from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH, resolve_repo_path
-from incident_pipeline.common.settings import load_settings
+from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH
+from incident_pipeline.common.settings import load_settings, resolve_storage_setting
 
 
 CONFIG_PATH = DEFAULT_SETTINGS_PATH
@@ -17,10 +17,6 @@ def load_config(config_path: Path | None = None) -> dict:
     resolved_config_path = config_path or CONFIG_PATH
     effective_path = None if resolved_config_path == DEFAULT_SETTINGS_PATH else resolved_config_path
     return load_settings(effective_path)
-
-
-def resolve_path(path_value: str) -> Path:
-    return resolve_repo_path(path_value)
 
 
 def now_utc() -> str:
@@ -125,7 +121,10 @@ def get_source_text_path(
     if "extracted_text_path" in document_columns:
         manifest_value = document["extracted_text_path"]
         if manifest_value:
-            return resolve_path(manifest_value)
+            path = Path(manifest_value)
+            if path.is_absolute():
+                return path.resolve()
+            return (processed_root.parent / path).resolve()
 
     return build_fallback_input_path(processed_root, document["doc_id"], document["stage"])
 
@@ -199,8 +198,8 @@ def make_summary(selected: int = 0) -> dict[str, int]:
 def run_structure_batch(config_path: Path | None = None) -> dict[str, int]:
     cfg = load_config(config_path)
 
-    db_path = resolve_path(cfg["database"]["manifest_path"])
-    processed_root = resolve_path(cfg["paths"]["processed"])
+    db_path = resolve_storage_setting(cfg, cfg["database"]["manifest_path"])
+    processed_root = resolve_storage_setting(cfg, cfg["paths"]["processed"])
     overwrite_existing = bool(cfg["processing"].get("overwrite_existing", False))
 
     if not db_path.exists():

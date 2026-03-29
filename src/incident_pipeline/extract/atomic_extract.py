@@ -7,15 +7,16 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Protocol
 
-from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH, resolve_repo_path
-from incident_pipeline.common.settings import load_settings
+from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH
+from incident_pipeline.common.settings import load_settings, resolve_storage_setting
 from incident_pipeline.common.stage_runs import (
     StageFailure,
     StageFailurePolicy,
     ValidationRule,
-    assert_certified_input,
     create_stage_run_context,
     isoformat_utc,
+    load_latest_certified_run_with_dir,
+    load_run_summary_for_dir,
     parse_jsonl,
     read_json,
     rule,
@@ -38,6 +39,8 @@ STAGE_NAME = "atomic_extract"
 STAGE_VERSION = "atomic_extract_v1"
 RULE_SET_VERSION = "atomic_stage_certification_v1"
 FAILURE_POLICY = StageFailurePolicy(max_failure_count=0, max_failure_rate=0.0)
+UPSTREAM_STAGE_NAME = "sentence_span_generation"
+UPSTREAM_INPUT_FILENAME = "sentence_spans.jsonl"
 REQUIRED_RUN_FILES = (
     "sentence_spans.jsonl",
     "atomic_extractions.jsonl",
@@ -64,19 +67,140 @@ class AtomicRunArtifacts:
     certified: bool
 
 
+@dataclass(frozen=True)
+class UpstreamSentenceSpanInput:
+    stage_name: str
+    run_id: str
+    run_dir: Path
+    input_path: Path
+    summary: Mapping[str, Any]
+
+
 def load_config(config_path: Path | None = None) -> dict[str, Any]:
     resolved_config_path = config_path or CONFIG_PATH
     effective_path = None if resolved_config_path == DEFAULT_SETTINGS_PATH else resolved_config_path
     return load_settings(effective_path)
 
 
-def resolve_path(path_value: str) -> Path:
-    return resolve_repo_path(path_value)
-
-
 def resolve_output_root(cfg: Mapping[str, Any]) -> Path:
     atomic_cfg = cfg["atomic_extraction"]
-    return resolve_path(atomic_cfg["output_root"])
+    return resolve_storage_setting(dict(cfg), atomic_cfg["output_root"])
+
+
+def resolve_sentence_span_root(cfg: Mapping[str, Any]) -> Path:
+    atomic_cfg = cfg["atomic_extraction"]
+    return resolve_storage_setting(
+        dict(cfg),
+        atomic_cfg.get("sentence_span_root", "extract/sentence_spans"),
+    )
+
+
+def _reject_configured_input_path(atomic_cfg: Mapping[str, Any]) -> None:
+    if "input_path" in atomic_cfg:
+        raise ValueError(
+            "atomic_extraction.input_path is no longer supported. "
+            "Atomic extraction now discovers the latest certified sentence span run "
+            "automatically. Use --input-path only to pin a specific certified "
+            "sentence_spans.jsonl file for debugging or manual replay."
+        )
+
+
+def _validated_certified_input(
+    *,
+    run_dir: Path,
+    input_path: Path,
+    summary: Mapping[str, Any],
+) -> UpstreamSentenceSpanInput:
+    if not (run_dir / "_CERTIFIED").exists():
+        raise ValueError(
+            f"Sentence span input must come from a certified run, but _CERTIFIED is missing: {run_dir}"
+        )
+    if summary.get("stage_name") != UPSTREAM_STAGE_NAME:
+        raise ValueError(
+            f"Expected certified {UPSTREAM_STAGE_NAME} run, found "
+            f"{summary.get('stage_name')!r} in {run_dir}"
+        )
+    if summary.get("certification_status") != "certified":
+        raise ValueError(
+            f"Sentence span run is not certified: {run_dir}"
+        )
+    if not input_path.exists():
+        raise FileNotFoundError(
+            f"Certified {UPSTREAM_STAGE_NAME} run is missing {UPSTREAM_INPUT_FILENAME}: {input_path}"
+        )
+    return UpstreamSentenceSpanInput(
+        stage_name=str(summary["stage_name"]),
+        run_id=str(summary.get("run_id") or run_dir.name),
+        run_dir=run_dir,
+        input_path=input_path,
+        summary=summary,
+    )
+
+
+def resolve_upstream_sentence_span_input(
+    cfg: Mapping[str, Any],
+    *,
+    input_path_override: Path | None = None,
+) -> tuple[Path, UpstreamSentenceSpanInput]:
+    sentence_span_root = resolve_sentence_span_root(cfg)
+    runs_root = (sentence_span_root / "runs").resolve()
+
+    if input_path_override is None:
+        run_dir, summary = load_latest_certified_run_with_dir(
+            sentence_span_root,
+            expected_stage_name=UPSTREAM_STAGE_NAME,
+        )
+        input_path = run_dir / UPSTREAM_INPUT_FILENAME
+        upstream_input = _validated_certified_input(
+            run_dir=run_dir,
+            input_path=input_path,
+            summary=summary,
+        )
+        return sentence_span_root, upstream_input
+
+    resolved_input_path = input_path_override.expanduser().resolve()
+    if resolved_input_path.name != UPSTREAM_INPUT_FILENAME:
+        raise ValueError(
+            "--input-path must point to sentence_spans.jsonl inside a certified "
+            "sentence span run directory."
+        )
+    try:
+        resolved_input_path.relative_to(runs_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"--input-path must be under the configured sentence span runs root: {runs_root}"
+        ) from exc
+
+    run_dir = resolved_input_path.parent
+    summary = load_run_summary_for_dir(run_dir)
+    upstream_input = _validated_certified_input(
+        run_dir=run_dir,
+        input_path=resolved_input_path,
+        summary=summary,
+    )
+    return sentence_span_root, upstream_input
+
+
+def _assert_selected_certified_input(
+    upstream_input: UpstreamSentenceSpanInput,
+    *,
+    current_primary_output_count: int,
+    current_primary_output_digest: str,
+) -> None:
+    expected_count = int(upstream_input.summary["primary_output_count"])
+    expected_digest = str(upstream_input.summary["primary_output_digest"])
+
+    if expected_count != current_primary_output_count:
+        raise ValueError(
+            f"Certified {upstream_input.stage_name} input count mismatch: "
+            f"expected {expected_count}, found {current_primary_output_count}"
+        )
+
+    if expected_digest != current_primary_output_digest:
+        raise ValueError(
+            f"Certified {upstream_input.stage_name} input digest mismatch for "
+            f"{upstream_input.input_path}: expected {expected_digest}, found {current_primary_output_digest}"
+        )
 
 
 def transform_sentence_span(sentence_span: SentenceSpan) -> AtomicExtractionResult:
@@ -311,6 +435,7 @@ def _validate_persisted_results(
 def _finalize_atomic_run(
     *,
     run_context: Any,
+    upstream_input: UpstreamSentenceSpanInput | None,
     sentence_spans_path: Path,
     atomic_extractions_path: Path,
     atomic_failures_path: Path,
@@ -448,8 +573,13 @@ def _finalize_atomic_run(
         "run_status": run_status,
         "validation_status": "failed" if _error_rules_failed(provisional_rules) else "passed",
         "certification_status": "failed",
-        "upstream_stage": "sentence_spans",
-        "input_manifest_path": str(sentence_spans_path),
+        "upstream_stage": upstream_input.stage_name if upstream_input is not None else UPSTREAM_STAGE_NAME,
+        "upstream_run_id": upstream_input.run_id if upstream_input is not None else None,
+        "upstream_run_dir": str(upstream_input.run_dir) if upstream_input is not None else None,
+        "upstream_input_path": str(upstream_input.input_path) if upstream_input is not None else None,
+        "input_manifest_path": (
+            str(upstream_input.input_path) if upstream_input is not None else None
+        ),
         "input_record_count": input_record_count,
         "input_digest": input_digest,
         "output_root": str(run_context.output_root),
@@ -563,10 +693,11 @@ def run_atomic_extraction_batch(
     config_path: Path | None = None,
     *,
     transform_span: SentenceSpanTransformer | None = None,
+    input_path_override: Path | None = None,
 ) -> dict[str, int]:
     cfg = load_config(config_path)
     atomic_cfg = cfg["atomic_extraction"]
-    input_path = resolve_path(atomic_cfg["input_path"])
+    _reject_configured_input_path(atomic_cfg)
     output_root = resolve_output_root(cfg)
     batch_size = int(atomic_cfg.get("batch_size", 50))
     require_certified_input = bool(atomic_cfg.get("require_certified_input", True))
@@ -577,17 +708,38 @@ def run_atomic_extraction_batch(
     mapping_contract_version = str(
         atomic_cfg.get("mapping_contract_version", MAPPING_CONTRACT_VERSION)
     )
-    sentence_span_root = resolve_path(
-        atomic_cfg.get("sentence_span_root", output_root.parent / "sentence_spans")
-    )
+    sentence_span_root = resolve_sentence_span_root(cfg)
     transformer = transform_span or transform_sentence_span
+    upstream_input: UpstreamSentenceSpanInput | None = None
+    input_path_text: str | None = None
+    upstream_run_id: str | None = None
+    upstream_run_dir: str | None = None
+
+    try:
+        sentence_span_root, upstream_input = resolve_upstream_sentence_span_input(
+            cfg,
+            input_path_override=input_path_override,
+        )
+        input_path_text = str(upstream_input.input_path)
+        upstream_run_id = upstream_input.run_id
+        upstream_run_dir = str(upstream_input.run_dir)
+    except Exception as exc:
+        input_path_text = None
+        upstream_run_id = None
+        upstream_run_dir = None
+        upstream_resolution_error = str(exc)
+    else:
+        upstream_resolution_error = None
 
     runtime_parameters = {
-        "input_path": str(input_path),
+        "input_path": input_path_text,
         "output_root": str(output_root),
         "batch_size": batch_size,
         "require_certified_input": require_certified_input,
         "sentence_span_root": str(sentence_span_root),
+        "upstream_run_id": upstream_run_id,
+        "upstream_run_dir": upstream_run_dir,
+        "input_path_override": str(input_path_override.resolve()) if input_path_override is not None else None,
         "model_contract_version": model_contract_version,
         "ontology_version": ontology_version,
         "mapping_contract_version": mapping_contract_version,
@@ -617,8 +769,10 @@ def run_atomic_extraction_batch(
     run_status = "completed"
 
     try:
-        if not input_path.exists():
-            raise FileNotFoundError(f"Sentence span input not found: {input_path}")
+        if upstream_resolution_error is not None:
+            raise ValueError(upstream_resolution_error)
+        assert upstream_input is not None
+        input_path = upstream_input.input_path
 
         for line_number, line in _load_nonempty_lines(input_path):
             summary["selected"] += 1
@@ -652,9 +806,9 @@ def run_atomic_extraction_batch(
 
     if run_status == "completed" and require_certified_input:
         try:
-            assert_certified_input(
-                sentence_span_root,
-                expected_stage_name="sentence_span_generation",
+            assert upstream_input is not None
+            _assert_selected_certified_input(
+                upstream_input,
                 current_primary_output_count=len(validated_sentence_spans),
                 current_primary_output_digest=sha256_file(sentence_spans_path),
             )
@@ -692,6 +846,7 @@ def run_atomic_extraction_batch(
     )
     _finalize_atomic_run(
         run_context=run_context,
+        upstream_input=upstream_input,
         sentence_spans_path=sentence_spans_path,
         atomic_extractions_path=atomic_extractions_path,
         atomic_failures_path=atomic_failures_path,

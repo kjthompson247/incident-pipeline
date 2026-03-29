@@ -12,7 +12,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from incident_pipeline.common.paths import DEFAULT_NTSB_SOURCE_ROOT, resolve_repo_path
+from incident_pipeline.common.paths import (
+    DEFAULT_STORAGE_NAMESPACE,
+    default_ntsb_source_root,
+    resolve_storage_path,
+)
 
 REPORTS_ROOT_ENV_VAR = "INCIDENT_PIPELINE_ACQUISITION_REPORTS_ROOT"
 
@@ -20,8 +24,12 @@ REPORTS_ROOT_ENV_VAR = "INCIDENT_PIPELINE_ACQUISITION_REPORTS_ROOT"
 def _default_reports_root() -> Path:
     configured = os.environ.get(REPORTS_ROOT_ENV_VAR)
     if configured:
-        return resolve_repo_path(configured)
-    return DEFAULT_NTSB_SOURCE_ROOT / "acquisition" / "reports"
+        return resolve_storage_path(
+            configured,
+            storage_root=default_ntsb_source_root().parent,
+            storage_namespace=DEFAULT_STORAGE_NAMESPACE,
+        )
+    return default_ntsb_source_root() / "acquisition" / "reports"
 
 
 REPORTS_ROOT = _default_reports_root()

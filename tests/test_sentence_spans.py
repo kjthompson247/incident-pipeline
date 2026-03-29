@@ -13,7 +13,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SQL_FILE = REPO_ROOT / "sql" / "init_manifest.sql"
 
 
+def namespace_root(storage_root: Path) -> Path:
+    return storage_root / "ntsb"
+
+
+def relpath(path: Path, storage_root: Path) -> str:
+    return str(path.relative_to(namespace_root(storage_root)))
+
+
 def init_manifest_db(db_path: Path) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SQL_FILE.read_text(encoding="utf-8"))
     conn.commit()
@@ -21,13 +30,18 @@ def init_manifest_db(db_path: Path) -> None:
 
 
 def write_config(config_path: Path, db_path: Path, processed_root: Path) -> None:
+    storage_root = config_path.parent
     config = {
-        "database": {"manifest_path": str(db_path)},
-        "paths": {"processed": str(processed_root)},
+        "paths": {
+            "storage_root": str(storage_root),
+            "storage_namespace": "ntsb",
+            "processed": relpath(processed_root, storage_root),
+        },
+        "database": {"manifest_path": relpath(db_path, storage_root)},
         "extraction": {"method": "pypdf"},
         "ocr": {"engine": "tesseract"},
         "sentence_span_generation": {
-            "output_root": str(processed_root / "sentence_spans"),
+            "output_root": relpath(processed_root / "sentence_spans", storage_root),
             "segmentation_version": "sentence-split-v1",
             "include_context": True,
         },
@@ -105,8 +119,9 @@ def test_split_sentences_preserves_abbreviations_and_decimals() -> None:
 
 
 def test_run_sentence_span_batch_writes_certified_artifacts(tmp_path: Path) -> None:
-    db_path = tmp_path / "manifest.db"
-    processed_root = tmp_path / "extract"
+    namespaced_root = namespace_root(tmp_path)
+    db_path = namespaced_root / "manifest.db"
+    processed_root = namespaced_root / "extract"
     config_path = tmp_path / "settings.yaml"
     text_path = processed_root / "extracted" / "doc-1.txt"
     text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -157,8 +172,9 @@ def test_run_sentence_span_batch_writes_certified_artifacts(tmp_path: Path) -> N
 
 
 def test_run_sentence_span_batch_is_deterministic_for_same_input(tmp_path: Path) -> None:
-    db_path = tmp_path / "manifest.db"
-    processed_root = tmp_path / "extract"
+    namespaced_root = namespace_root(tmp_path)
+    db_path = namespaced_root / "manifest.db"
+    processed_root = namespaced_root / "extract"
     config_path = tmp_path / "settings.yaml"
     text_path = processed_root / "extracted" / "doc-1.txt"
     text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,8 +210,9 @@ def test_run_sentence_span_batch_is_deterministic_for_same_input(tmp_path: Path)
 
 
 def test_run_sentence_span_batch_records_missing_text_as_failure(tmp_path: Path) -> None:
-    db_path = tmp_path / "manifest.db"
-    processed_root = tmp_path / "extract"
+    namespaced_root = namespace_root(tmp_path)
+    db_path = namespaced_root / "manifest.db"
+    processed_root = namespaced_root / "extract"
     config_path = tmp_path / "settings.yaml"
     missing_text_path = processed_root / "extracted" / "missing.txt"
     init_manifest_db(db_path)

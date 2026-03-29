@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
-from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH, resolve_repo_path
-from incident_pipeline.common.settings import load_settings
+from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH
+from incident_pipeline.common.settings import load_settings, resolve_storage_setting
 
 
 CONFIG_PATH = DEFAULT_SETTINGS_PATH
@@ -14,10 +14,6 @@ CONFIG_PATH = DEFAULT_SETTINGS_PATH
 def load_config() -> dict:
     config_path = None if CONFIG_PATH == DEFAULT_SETTINGS_PATH else CONFIG_PATH
     return load_settings(config_path)
-
-
-def resolve_path(path_value: str) -> Path:
-    return resolve_repo_path(path_value)
 
 
 def now_utc() -> str:
@@ -145,8 +141,8 @@ def make_summary(selected: int = 0) -> dict[str, int]:
 def run_extraction_batch() -> dict[str, int]:
     cfg = load_config()
 
-    db_path = resolve_path(cfg["database"]["manifest_path"])
-    processed_root = resolve_path(cfg["paths"]["processed"])
+    db_path = resolve_storage_setting(cfg, cfg["database"]["manifest_path"])
+    processed_root = resolve_storage_setting(cfg, cfg["paths"]["processed"])
     overwrite_existing = bool(cfg["processing"].get("overwrite_existing", False))
     min_text_threshold = int(cfg["extraction"].get("min_text_threshold", 0))
     ocr_enabled = bool(cfg["ocr"].get("enabled", False))

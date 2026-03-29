@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH, resolve_repo_path
-from incident_pipeline.common.settings import load_settings
+from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH
+from incident_pipeline.common.settings import load_settings, resolve_storage_setting
 from incident_pipeline.common.stage_runs import (
     StageFailure,
     StageFailurePolicy,
@@ -46,10 +46,6 @@ REQUIRED_METADATA_FIELDS = (
 def load_config() -> dict:
     config_path = None if CONFIG_PATH == DEFAULT_SETTINGS_PATH else CONFIG_PATH
     return load_settings(config_path)
-
-
-def resolve_path(path_value: str) -> Path:
-    return resolve_repo_path(path_value)
 
 
 def make_summary() -> dict[str, int]:
@@ -229,8 +225,8 @@ def classify_failure(record: IngestionRecord, exc: Exception) -> StageFailure:
 def run_docket_ingest_batch() -> dict[str, int]:
     cfg = load_config()
     ingest_cfg = cfg["docket_ingest"]
-    manifest_path = resolve_path(ingest_cfg["manifest_path"])
-    output_root = resolve_path(ingest_cfg["output_root"])
+    manifest_path = resolve_storage_setting(cfg, ingest_cfg["manifest_path"])
+    output_root = resolve_storage_setting(cfg, ingest_cfg["output_root"])
     overwrite_existing = bool(ingest_cfg.get("overwrite_existing", False))
     runtime_parameters = {
         "manifest_path": str(manifest_path),

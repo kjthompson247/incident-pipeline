@@ -33,6 +33,19 @@ from incident_pipeline.acquisition.ntsb.models import (
 runner = CliRunner()
 
 
+def acquisition_layout(storage_root: Path) -> tuple[Path, Path, Path]:
+    data_root = (storage_root / "ntsb").resolve()
+    return (
+        data_root,
+        data_root / "acquisition" / "state" / "acquisition.db",
+        data_root / "raw",
+    )
+
+
+def acquisition_env(storage_root: Path) -> dict[str, str]:
+    return {"INCIDENT_PIPELINE_DATA_ROOT": str(storage_root)}
+
+
 def parse_structured_output(stdout: str) -> dict[str, object]:
     return cast(dict[str, object], json.loads(stdout.strip()))
 
@@ -56,24 +69,19 @@ def test_help_lists_acquisition_commands() -> None:
         "doctor",
     ]:
         assert command in result.stdout
+    assert "--data-root" not in result.stdout
+    assert "--sqlite-path" not in result.stdout
+    assert "--downstream-raw-root" not in result.stdout
 
 
 def test_init_db_emits_structured_ok_result(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    _, sqlite_path, _ = acquisition_layout(storage_root)
 
     result = runner.invoke(
         app,
-        [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
-            "init-db",
-        ],
+        ["init-db"],
+        env=acquisition_env(storage_root),
     )
 
     assert result.exit_code == 0
@@ -84,11 +92,18 @@ def test_init_db_emits_structured_ok_result(tmp_path: Path) -> None:
     assert sqlite_path.exists()
 
 
-def test_doctor_succeeds_when_runtime_contract_is_valid(monkeypatch: MonkeyPatch) -> None:
+def test_doctor_succeeds_when_runtime_contract_is_valid(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
     monkeypatch.setattr("incident_pipeline.acquisition.ntsb.cli.platform.python_version", lambda: "3.12.13")
     monkeypatch.setattr("incident_pipeline.acquisition.ntsb.cli.sys.version_info", (3, 12, 13))
 
-    result = runner.invoke(app, ["doctor"])
+    result = runner.invoke(
+        app,
+        ["doctor"],
+        env=acquisition_env(tmp_path / "storage"),
+    )
 
     assert result.exit_code == 0
     payload = parse_structured_output(result.stdout)
@@ -100,11 +115,18 @@ def test_doctor_succeeds_when_runtime_contract_is_valid(monkeypatch: MonkeyPatch
     assert all(isinstance(check, dict) and check.get("ok") for check in checks)
 
 
-def test_doctor_fails_when_python_version_is_invalid(monkeypatch: MonkeyPatch) -> None:
+def test_doctor_fails_when_python_version_is_invalid(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
     monkeypatch.setattr("incident_pipeline.acquisition.ntsb.cli.platform.python_version", lambda: "3.12.12")
     monkeypatch.setattr("incident_pipeline.acquisition.ntsb.cli.sys.version_info", (3, 12, 12))
 
-    result = runner.invoke(app, ["doctor"])
+    result = runner.invoke(
+        app,
+        ["doctor"],
+        env=acquisition_env(tmp_path / "storage"),
+    )
 
     assert result.exit_code == 1
     payload = parse_structured_output(result.stdout)
@@ -134,9 +156,8 @@ def test_enumerate_dockets_uses_union_of_investigations_and_docket_search(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    sqlite_path = tmp_path / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    _, sqlite_path, _ = acquisition_layout(storage_root)
     init_db(sqlite_path)
 
     with connect_sqlite(sqlite_path) as connection:
@@ -205,16 +226,11 @@ def test_enumerate_dockets_uses_union_of_investigations_and_docket_search(
     result = runner.invoke(
         app,
         [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
             "--docket-base-url",
             "https://example.test/Docket",
             "enumerate-dockets",
         ],
+        env=acquisition_env(storage_root),
     )
 
     assert result.exit_code == 0
@@ -225,9 +241,8 @@ def test_enumerate_dockets_uses_union_of_investigations_and_docket_search(
 
 
 def test_summarize_reports_current_index_counts(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    _, sqlite_path, _ = acquisition_layout(storage_root)
     init_db(sqlite_path)
 
     with connect_sqlite(sqlite_path) as connection:
@@ -374,15 +389,8 @@ def test_summarize_reports_current_index_counts(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
-            "summarize",
-        ],
+        ["summarize"],
+        env=acquisition_env(storage_root),
     )
 
     assert result.exit_code == 0
@@ -411,9 +419,8 @@ def test_summarize_reports_current_index_counts(tmp_path: Path) -> None:
 
 
 def test_export_ingestion_manifest_outputs_ndjson_in_deterministic_order(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    data_root, sqlite_path, _ = acquisition_layout(storage_root)
     init_db(sqlite_path)
 
     with connect_sqlite(sqlite_path) as connection:
@@ -516,15 +523,8 @@ def test_export_ingestion_manifest_outputs_ndjson_in_deterministic_order(tmp_pat
 
     result = runner.invoke(
         app,
-        [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
-            "export-ingestion-manifest",
-        ],
+        ["export-ingestion-manifest"],
+        env=acquisition_env(storage_root),
     )
 
     exports_root = data_root / "acquisition" / "exports"
@@ -574,9 +574,8 @@ def test_export_ingestion_manifest_outputs_ndjson_in_deterministic_order(tmp_pat
 def test_export_ingestion_manifest_writes_deterministic_export_file_by_default(
     tmp_path: Path,
 ) -> None:
-    sqlite_path = tmp_path / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    data_root, sqlite_path, _ = acquisition_layout(storage_root)
     init_db(sqlite_path)
 
     with connect_sqlite(sqlite_path) as connection:
@@ -631,15 +630,8 @@ def test_export_ingestion_manifest_writes_deterministic_export_file_by_default(
 
     result = runner.invoke(
         app,
-        [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
-            "export-ingestion-manifest",
-        ],
+        ["export-ingestion-manifest"],
+        env=acquisition_env(storage_root),
     )
 
     exports_root = data_root / "acquisition" / "exports"
@@ -657,9 +649,8 @@ def test_export_ingestion_manifest_writes_deterministic_export_file_by_default(
 
 
 def test_export_ingestion_manifest_quiet_suppresses_stdout_rows(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    data_root, sqlite_path, _ = acquisition_layout(storage_root)
     init_db(sqlite_path)
 
     with connect_sqlite(sqlite_path) as connection:
@@ -714,16 +705,8 @@ def test_export_ingestion_manifest_quiet_suppresses_stdout_rows(tmp_path: Path) 
 
     result = runner.invoke(
         app,
-        [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
-            "export-ingestion-manifest",
-            "--quiet",
-        ],
+        ["export-ingestion-manifest", "--quiet"],
+        env=acquisition_env(storage_root),
     )
 
     exports_root = data_root / "acquisition" / "exports"

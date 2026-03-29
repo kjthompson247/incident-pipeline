@@ -22,6 +22,19 @@ from incident_pipeline.acquisition.ntsb.models import BlobRecord, DocketItem, Do
 runner = CliRunner()
 
 
+def acquisition_layout(storage_root: Path) -> tuple[Path, Path, Path]:
+    data_root = (storage_root / "ntsb").resolve()
+    return (
+        data_root,
+        data_root / "acquisition" / "state" / "acquisition.db",
+        data_root / "raw",
+    )
+
+
+def acquisition_env(storage_root: Path) -> dict[str, str]:
+    return {"INCIDENT_PIPELINE_DATA_ROOT": str(storage_root)}
+
+
 def make_docket_item(*, ordinal: int, title: str) -> DocketItem:
     normalized_title_slug = title.lower().replace(" ", "_")
     return DocketItem(
@@ -143,9 +156,8 @@ def test_materialize_case_creates_deterministic_case_view_files(tmp_path: Path) 
 
 
 def test_materialize_case_command_reports_materialized_file_count(tmp_path: Path) -> None:
-    sqlite_path = tmp_path / "data" / "acquisition" / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    data_root, sqlite_path, downstream_raw_root = acquisition_layout(storage_root)
     blob_path = tmp_path / "blobs" / "source.pdf"
     blob_path.parent.mkdir(parents=True, exist_ok=True)
     blob_path.write_bytes(b"%PDF-1.7 source")
@@ -162,16 +174,11 @@ def test_materialize_case_command_reports_materialized_file_count(tmp_path: Path
     result = runner.invoke(
         app,
         [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
             "materialize-case",
             "--ntsb-number",
             "DCA24FM001",
         ],
+        env=acquisition_env(storage_root),
     )
 
     payload = json.loads(result.stdout.strip())
@@ -199,9 +206,8 @@ def test_materialize_case_command_generates_html_feedback(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    sqlite_path = tmp_path / "data" / "acquisition" / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    data_root, sqlite_path, downstream_raw_root = acquisition_layout(storage_root)
     blob_path = tmp_path / "blobs" / "source.pdf"
     report_root = tmp_path / "reports"
     opened_reports: list[Path] = []
@@ -226,17 +232,12 @@ def test_materialize_case_command_generates_html_feedback(
     result = runner.invoke(
         app,
         [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
             "materialize-case",
             "--ntsb-number",
             "DCA24FM001",
             "--html-feedback",
         ],
+        env=acquisition_env(storage_root),
     )
 
     payload = json.loads(result.stdout.strip())

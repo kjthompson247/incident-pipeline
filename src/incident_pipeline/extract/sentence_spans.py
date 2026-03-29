@@ -11,8 +11,8 @@ import sqlite3
 from time import perf_counter
 from typing import Any
 
-from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH, resolve_repo_path
-from incident_pipeline.common.settings import load_settings
+from incident_pipeline.common.paths import DEFAULT_SETTINGS_PATH
+from incident_pipeline.common.settings import load_settings, resolve_storage_setting
 from incident_pipeline.common.stage_runs import (
     StageFailure,
     StageFailurePolicy,
@@ -79,14 +79,10 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
     return load_settings(effective_path)
 
 
-def resolve_path(path_value: str | Path) -> Path:
-    return resolve_repo_path(path_value)
-
-
 def resolve_output_root(cfg: Mapping[str, Any]) -> Path:
-    processed_root = resolve_path(cfg["paths"]["processed"])
     sentence_cfg = cfg.get("sentence_span_generation", {})
-    return resolve_path(sentence_cfg.get("output_root", processed_root / "sentence_spans"))
+    output_root_value = sentence_cfg.get("output_root", "extract/sentence_spans")
+    return resolve_storage_setting(dict(cfg), output_root_value)
 
 
 def now_utc() -> str:
@@ -134,7 +130,10 @@ def get_source_text_path(
     if "extracted_text_path" in document_columns:
         manifest_value = document["extracted_text_path"]
         if manifest_value:
-            return resolve_path(manifest_value)
+            path = Path(manifest_value)
+            if path.is_absolute():
+                return path.resolve()
+            return (processed_root.parent / path).resolve()
     return build_fallback_input_path(processed_root, document["doc_id"], document["stage"])
 
 
@@ -472,8 +471,8 @@ def validate_sentence_spans(
 
 def run_sentence_span_batch(config_path: Path | None = None) -> dict[str, int]:
     cfg = load_config(config_path)
-    db_path = resolve_path(cfg["database"]["manifest_path"])
-    processed_root = resolve_path(cfg["paths"]["processed"])
+    db_path = resolve_storage_setting(cfg, cfg["database"]["manifest_path"])
+    processed_root = resolve_storage_setting(cfg, cfg["paths"]["processed"])
     sentence_cfg = cfg.get("sentence_span_generation", {})
     output_root = resolve_output_root(cfg)
     segmentation_version = str(sentence_cfg.get("segmentation_version", SEGMENTATION_VERSION))

@@ -13,6 +13,19 @@ runner = CliRunner()
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
 
 
+def acquisition_layout(storage_root: Path) -> tuple[Path, Path, Path]:
+    data_root = (storage_root / "ntsb").resolve()
+    return (
+        data_root,
+        data_root / "acquisition" / "state" / "acquisition.db",
+        data_root / "raw",
+    )
+
+
+def acquisition_env(storage_root: Path) -> dict[str, str]:
+    return {"INCIDENT_PIPELINE_DATA_ROOT": str(storage_root)}
+
+
 def load_json_fixture(relative_path: str) -> object:
     return json.loads((FIXTURE_ROOT / relative_path).read_text(encoding="utf-8"))
 
@@ -63,24 +76,18 @@ def test_run_command_executes_bounded_acquisition_flow(tmp_path: Path, monkeypat
 
     monkeypatch.setattr("incident_pipeline.acquisition.ntsb.cli.build_http_client", make_http_client)
 
-    sqlite_path = tmp_path / "data" / "acquisition" / "state" / "acquisition.db"
-    data_root = tmp_path / "data"
-    downstream_raw_root = tmp_path / "corpus" / "raw"
+    storage_root = tmp_path / "storage"
+    data_root, sqlite_path, downstream_raw_root = acquisition_layout(storage_root)
     result = runner.invoke(
         app,
         [
-            "--data-root",
-            str(data_root),
-            "--sqlite-path",
-            str(sqlite_path),
-            "--downstream-raw-root",
-            str(downstream_raw_root),
             "--carol-base-url",
             "https://example.test/carol",
             "--docket-base-url",
             "https://example.test/dockets",
             "run",
         ],
+        env=acquisition_env(storage_root),
     )
 
     assert result.exit_code == 0
