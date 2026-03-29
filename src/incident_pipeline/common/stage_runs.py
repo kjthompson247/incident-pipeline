@@ -83,6 +83,10 @@ def isoformat_utc(value: datetime) -> str:
     return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def isoformat_utc_precise(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
 def git_code_version(repo_root: Path = REPO_ROOT) -> str | None:
     try:
         result = subprocess.run(
@@ -106,7 +110,7 @@ def build_run_id(
     config_version: str,
     runtime_parameters_digest: str,
 ) -> str:
-    started_text = isoformat_utc(started_at)
+    started_text = isoformat_utc_precise(started_at)
     seed = sha256_text(f"{stage_name}|{started_text}|{config_version}|{runtime_parameters_digest}")
     return f"{stage_name}_{started_text}_{seed[:8]}"
 

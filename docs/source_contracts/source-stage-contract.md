@@ -27,6 +27,9 @@ One primary narrative anchor per case/docket/investigation where applicable.
 
 ### extract
 Structured evidence fields.
+This stage may include deterministic structural parsing, deterministic
+SentenceSpan generation, and schema-bound atomic extraction, but only governed
+stage records are authoritative.
 
 ### index
 Prepared artifacts for retrieval or graph/indexing systems.

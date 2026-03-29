@@ -16,6 +16,15 @@ Current and planned sources include:
 - courts
 - news
 
+The extract layer now includes two governed substages:
+
+- deterministic SentenceSpan generation
+- schema-bound atomic extraction
+
+The repository implements the contracts, validators, and certified run
+artifacts for those substages. It does not currently ship a production model
+adapter for atomic extraction.
+
 ## Bootstrap
 
 Supported runtime: Python `3.12.13`
@@ -170,5 +179,7 @@ OCR is disabled by default in the shipped config. If you explicitly enable it, q
 - `docs/architecture/metadata-authority.md`
 - `docs/migration/repo-consolidation-plan.md`
 - `docs/source_contracts/source-stage-contract.md`
+- `docs/source_contracts/sentence-span-generation-contract.md`
+- `docs/source_contracts/sentence-to-atomic-contract.md`
 - `MIGRATION_STATUS.md`
 # incident-pipeline

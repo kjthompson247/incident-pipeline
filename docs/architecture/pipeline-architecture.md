@@ -71,10 +71,16 @@ The short version is:
 - acquisition uses governed current-state tables plus append-only manifests
 - downstream JSON stage outputs are governed stage records
 - extract / structure use the manifest SQLite DB as operational authority
+- extract sentence-span and atomic runs write certified run artifacts beneath
+  their stage output roots
 - convenience views, debug outputs, and mutable aliases are not co-equal truth
 
 ## Current Implementation Status
 
 - NTSB acquisition is implemented under `incident_pipeline.acquisition.ntsb`.
 - NTSB ingestion, triage, narrative selection, and extract stages are implemented under their canonical stage packages.
+- Extract now includes deterministic SentenceSpan generation and a
+  schema-bound atomic extraction contract. The pipeline contract is implemented
+  in-code, but the repo does not yet ship a production model adapter for atomic
+  transformation.
 - PHMSA, courts, news, and index are scaffold-only for now.
