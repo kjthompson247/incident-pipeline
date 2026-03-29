@@ -1,0 +1,20 @@
+<html>
+  <body>
+    <form method="post" action="/Docket/Forms/searchdocket">
+      <input type="hidden" name="__RequestVerificationToken" value="token123">
+      <input type="date" name="AccidentDateFrom" value="2020-01-01">
+      <input type="date" name="AccidentDateTo" value="2026-03-26">
+      <select name="StateRegion">
+        <option value="">All</option>
+        <option value="AZ" selected>Arizona</option>
+      </select>
+      <select name="Mode">
+        <option value="">Select</option>
+        <option value="Pipeline">Pipeline</option>
+        <option value="Marine">Marine</option>
+      </select>
+      <input type="checkbox" name="IncludeClosed" value="true">
+      <input type="submit" value="Submit Search">
+    </form>
+  </body>
+</html>

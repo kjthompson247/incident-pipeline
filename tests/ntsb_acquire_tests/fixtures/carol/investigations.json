@@ -1,0 +1,26 @@
+{
+  "results": [
+    {
+      "ntsbNumber": "DCA24FM001",
+      "projectId": "12345",
+      "mode": "aviation",
+      "eventDate": "2024-03-01",
+      "title": "Runway Excursion",
+      "caseType": "accident",
+      "location": {
+        "city": "Austin",
+        "state": "TX"
+      }
+    },
+    {
+      "NTSBNumber": "DCA24FM002",
+      "ProjectId": "23456",
+      "Mode": "aviation",
+      "EventDate": "2024-03-02",
+      "Title": "Hard Landing",
+      "CaseType": "incident",
+      "City": "Dallas",
+      "State": "TX"
+    }
+  ]
+}

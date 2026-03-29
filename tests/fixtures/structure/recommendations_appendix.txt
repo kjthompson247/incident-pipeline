@@ -1,0 +1,16 @@
+Focused Pipeline Report
+
+ABSTRACT
+Brief overview of the event.
+
+PROBABLE CAUSE
+A failed valve released gas into the distribution line.
+
+RECOMMENDATIONS
+Inspect similar valves within 30 days.
+
+Appendix A: Investigation
+Interview summaries and technical notes.
+
+References
+Reference list.

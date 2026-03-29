@@ -1,0 +1,35 @@
+Pipeline Investigation Report
+
+This report summarizes the investigation into the pipeline accident.
+Additional context was recorded before the first formal section.
+
+Summary
+Short summary of the pipeline accident.
+
+Executive Summary
+What Happened
+Gas was released from the pipeline.
+
+What We Found
+Investigators found incomplete integrity management controls.
+
+What We Recommended
+Revise operator procedures.
+
+1 Factual Information
+Detailed factual record.
+
+2 Analysis
+Analysis of the pipeline failure.
+
+3 Conclusions
+The board identified a maintenance program breakdown that was not corrected in time.
+
+3.1 Findings
+Maintenance tracking was incomplete.
+
+3.2 Probable Cause
+Failure to address known geohazard threats.
+
+4 Lessons Learned
+Operators should evaluate geohazard exposure earlier.

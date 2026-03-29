@@ -1,0 +1,55 @@
+[project]
+name = "incident-pipeline"
+version = "0.1.0"
+description = "Unified deterministic incident evidence pipeline."
+readme = "README.md"
+requires-python = "==3.12.13"
+dependencies = [
+    "beautifulsoup4==4.12.3",
+    "httpx==0.27.0",
+    "lxml==5.2.2",
+    "pydantic==2.7.4",
+    "pypdf==5.4.0",
+    "python-dotenv>=1.2.2",
+    "PyYAML==6.0.2",
+    "rich==13.7.1",
+    "typer==0.18.0",
+]
+
+[project.scripts]
+ntsb-acquire = "incident_pipeline.acquisition.ntsb.cli:app"
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.2",
+    "ruff==0.4.4",
+    "mypy==1.10.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/incident_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["UP007"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/incident_pipeline/acquisition/ntsb/cli.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+strict = true
+warn_unused_configs = true
