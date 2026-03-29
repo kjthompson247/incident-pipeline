@@ -74,6 +74,11 @@ def resolve_path(path_value: str) -> Path:
     return resolve_repo_path(path_value)
 
 
+def resolve_output_root(cfg: Mapping[str, Any]) -> Path:
+    atomic_cfg = cfg["atomic_extraction"]
+    return resolve_path(atomic_cfg["output_root"])
+
+
 def transform_sentence_span(sentence_span: SentenceSpan) -> AtomicExtractionResult:
     raise RuntimeError(
         "Atomic extraction transformer is not configured. "
@@ -562,7 +567,7 @@ def run_atomic_extraction_batch(
     cfg = load_config(config_path)
     atomic_cfg = cfg["atomic_extraction"]
     input_path = resolve_path(atomic_cfg["input_path"])
-    output_root = resolve_path(atomic_cfg["output_root"])
+    output_root = resolve_output_root(cfg)
     batch_size = int(atomic_cfg.get("batch_size", 50))
     require_certified_input = bool(atomic_cfg.get("require_certified_input", True))
     model_contract_version = str(

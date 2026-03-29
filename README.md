@@ -99,6 +99,17 @@ uv run python scripts/run_extract.py
 uv run python scripts/run_structure.py
 ```
 
+Extract substages:
+
+```bash
+uv run sentence-span-generate --config path/to/settings.yaml
+uv run atomic-extract --config path/to/settings.yaml --transformer package.module:callable_name
+```
+
+`sentence-span-generate` is deterministic and model-free.
+`atomic-extract` requires an explicit transformer import path; the repository
+does not silently provide a production model adapter.
+
 Extract and structure use the manifest database flow. Initialize and populate it before running those stages:
 
 ```bash

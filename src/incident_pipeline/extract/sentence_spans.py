@@ -83,6 +83,12 @@ def resolve_path(path_value: str | Path) -> Path:
     return resolve_repo_path(path_value)
 
 
+def resolve_output_root(cfg: Mapping[str, Any]) -> Path:
+    processed_root = resolve_path(cfg["paths"]["processed"])
+    sentence_cfg = cfg.get("sentence_span_generation", {})
+    return resolve_path(sentence_cfg.get("output_root", processed_root / "sentence_spans"))
+
+
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -469,9 +475,7 @@ def run_sentence_span_batch(config_path: Path | None = None) -> dict[str, int]:
     db_path = resolve_path(cfg["database"]["manifest_path"])
     processed_root = resolve_path(cfg["paths"]["processed"])
     sentence_cfg = cfg.get("sentence_span_generation", {})
-    output_root = resolve_path(
-        sentence_cfg.get("output_root", processed_root / "sentence_spans")
-    )
+    output_root = resolve_output_root(cfg)
     segmentation_version = str(sentence_cfg.get("segmentation_version", SEGMENTATION_VERSION))
     include_context = bool(sentence_cfg.get("include_context", True))
     runtime_parameters = {
