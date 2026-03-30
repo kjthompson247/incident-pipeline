@@ -19,7 +19,7 @@ Current and planned sources include:
 The extract layer now includes two governed substages:
 
 - deterministic SentenceSpan generation
-- schema-bound atomic extraction
+- schema-bound claim inference
 
 The repository implements the contracts, validators, and certified run
 artifacts for those substages. It does not currently ship a production model
@@ -149,6 +149,31 @@ uv run atomic-extract \
   --transformer package.module:callable_name \
   --input-path /absolute/path/to/extract/sentence_spans/runs/<run_id>/sentence_spans.jsonl
 ```
+
+Atomic claim inference now validates a governed claim/predicate/context
+contract. Claims carry sentence, parent-structure, artifact, predicate, and
+context lineage; ontology candidates remain adjacent and optional.
+
+The repository also exposes explicit library runners for OpenAI execution with
+the same validator and certification rules:
+
+```python
+from pathlib import Path
+
+from incident_pipeline.extract.atomic_extract import (
+    run_atomic_extraction_live,
+    run_atomic_extraction_openai_batch,
+)
+
+run_atomic_extraction_live(Path("configs/settings.yaml"), model="gpt-4.1-mini")
+run_atomic_extraction_openai_batch(
+    Path("configs/settings.yaml"),
+    model="gpt-4.1-mini",
+)
+```
+
+Both modes preserve the same governed artifacts and require certified
+SentenceSpan upstream input by default.
 
 Extract and structure use the manifest database flow. Initialize and populate it before running those stages:
 

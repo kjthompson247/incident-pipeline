@@ -60,11 +60,16 @@ sentence_span_generation:
 atomic_extraction:
   sentence_span_root: "extract/sentence_spans"
   output_root: "extract/atomic"
-  batch_size: 50
   require_certified_input: true
-  model_contract_version: "sentence-to-atomic-v1"
-  ontology_version: "minimal-ontology-v0.2"
-  mapping_contract_version: "mapping-contract-v0.1"
+  prompt_version: "claim-inference-v1"
+  model_contract_version: "sentence-to-claims-v1"
+  ontology_version: "claims-ontology-v1"
+  mapping_contract_version: "claim-mapping-v1"
+  live_max_retries: 3
+  live_retry_base_delay_seconds: 1.0
+  batch_completion_window: "24h"
+  batch_poll_interval_seconds: 5.0
+  batch_max_polls: 120
 
 logging:
   level: INFO

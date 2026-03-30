@@ -105,11 +105,11 @@ def write_atomic_config(config_path: Path, sentence_span_root: Path, output_root
         "atomic_extraction": {
             "output_root": relpath(output_root, storage_root),
             "sentence_span_root": relpath(sentence_span_root, storage_root),
-            "batch_size": 2,
             "require_certified_input": True,
-            "model_contract_version": "sentence-to-atomic-v1",
-            "ontology_version": "minimal-ontology-v0.2",
-            "mapping_contract_version": "mapping-contract-v0.1",
+            "prompt_version": "claim-inference-v1",
+            "model_contract_version": "sentence-to-claims-v1",
+            "ontology_version": "claims-ontology-v1",
+            "mapping_contract_version": "claim-mapping-v1",
         }
     }
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -226,20 +226,30 @@ def test_atomic_extract_cli_runs_with_explicit_transformer(tmp_path: Path, monke
             "status": "ok",
             "atomic_claims": [
                 {
-                    "atomic_claim_id": "claim-1",
-                    "claim_text": span.sentence_text,
+                    "claim_id": "claim-1",
+                    "sentence_span_id": span.sentence_span_id,
+                    "parent_structural_span_id": span.parent_structural_span_id,
+                    "artifact_id": span.artifact_id,
+                    "subject_text": "The pipe",
+                    "subject_ref": None,
+                    "predicate": "caused",
+                    "object_text": "the wall failure",
+                    "object_ref": None,
                     "assertion_mode": "concluded",
                     "polarity": "affirmed",
-                    "claim_type": "conclusion",
-                    "needs_review": False,
+                    "predicate_status": "core",
+                    "predicate_raw": None,
+                    "predicate_candidate": None,
+                    "context_ref": f"context:{span.sentence_span_id}",
                 }
             ],
             "ontology_candidates": [
                 {
                     "candidate_id": "candidate-1",
-                    "candidate_type": "causal_factors",
-                    "candidate_text": "corrosion weakened the wall",
+                    "candidate_type": "mechanism",
+                    "candidate_text": "corrosion",
                     "linked_claim_ids": ["claim-1"],
+                    "mechanism_class": "degradation",
                     "needs_review": False,
                 }
             ],
@@ -288,12 +298,21 @@ def test_atomic_extract_cli_accepts_explicit_certified_input_override(
             "status": "ok",
             "atomic_claims": [
                 {
-                    "atomic_claim_id": "claim-1",
-                    "claim_text": span.sentence_text,
+                    "claim_id": "claim-1",
+                    "sentence_span_id": span.sentence_span_id,
+                    "parent_structural_span_id": span.parent_structural_span_id,
+                    "artifact_id": span.artifact_id,
+                    "subject_text": span.sentence_text,
+                    "subject_ref": None,
+                    "predicate": "reported",
+                    "object_text": None,
+                    "object_ref": None,
                     "assertion_mode": "concluded",
                     "polarity": "affirmed",
-                    "claim_type": "conclusion",
-                    "needs_review": False,
+                    "predicate_status": "core",
+                    "predicate_raw": None,
+                    "predicate_candidate": None,
+                    "context_ref": f"context:{span.sentence_span_id}",
                 }
             ],
             "ontology_candidates": [],
