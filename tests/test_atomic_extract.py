@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from incident_pipeline.common.stage_runs import sha256_file
 from incident_pipeline.extract.atomic_contract import (
+    AtomicExtractionResult,
     PROMPT_VERSION,
     SentenceSpan,
     build_api_request,
@@ -606,3 +608,127 @@ def test_build_api_request_uses_governed_contract_versions() -> None:
     assert payload["ontology_version"] == "claims-ontology-v1"
     assert payload["mapping_contract_version"] == "claim-mapping-v1"
     assert len(payload["items"]) == 1
+
+
+def test_run_atomic_extraction_batch_routes_form_fragments_to_unprocessable(
+    tmp_path: Path,
+) -> None:
+    namespaced_root = namespace_root(tmp_path)
+    sentence_span_root = namespaced_root / "extract" / "sentence_spans"
+    output_root = namespaced_root / "extract" / "atomic"
+    config_path = tmp_path / "settings.yaml"
+    write_certified_sentence_span_run(
+        sentence_span_root,
+        [
+            make_sentence_span(
+                sentence_span_id="span-1",
+                sentence_text="• Damage by Outside Forces",
+            ),
+            make_sentence_span(
+                sentence_span_id="span-2",
+                sentence_text="0 Under water",
+            ),
+            make_sentence_span(
+                sentence_span_id="span-3",
+                sentence_text="Primary cause of incident",
+            ),
+            make_sentence_span(
+                sentence_span_id="span-4",
+                sentence_text="as a buffer between the mine area and Columbia's right-of-way.",
+            ),
+            make_sentence_span(
+                sentence_span_id="span-5",
+                sentence_text=(
+                    "Does statute or ordinance require the outside party to determine "
+                    "whether underground facility(ies) exist?"
+                ),
+            ),
+            make_sentence_span(
+                sentence_span_id="span-6",
+                sentence_text="D Damage by earth movement.",
+            ),
+            make_sentence_span(
+                sentence_span_id="span-7",
+                sentence_text="Inspectors reported coating damage.",
+            ),
+        ],
+    )
+    write_config(config_path, sentence_span_root, output_root)
+
+    calls: list[str] = []
+
+    def fake_transform(span):  # type: ignore[no-untyped-def]
+        calls.append(span.sentence_span_id)
+        return {
+            "sentence_span_id": span.sentence_span_id,
+            "status": "ok",
+            "atomic_claims": [
+                make_core_claim(
+                    sentence_span_id=span.sentence_span_id,
+                    predicate="reported",
+                    subject_text="Inspectors",
+                    object_text="coating damage",
+                )
+            ],
+            "ontology_candidates": [],
+            "unresolved": [],
+            "warnings": [],
+        }
+
+    summary = run_atomic_extraction_batch(config_path, transform_span=fake_transform)
+
+    assert summary == {
+        "selected": 7,
+        "completed": 7,
+        "unprocessable": 6,
+        "failed": 0,
+    }
+    assert calls == ["span-7"]
+    run_dir = next(path for path in (output_root / "runs").iterdir() if path.is_dir())
+    run_summary = read_json(run_dir / "atomic_run_summary.json")
+    assert run_summary["certification_status"] == "certified"
+    inference_metadata = read_json(run_dir / "inference_metadata.json")
+    assert inference_metadata["screened_span_count"] == 6
+    assert {item["sentence_span_id"] for item in inference_metadata["screened_spans"]} == {
+        "span-1",
+        "span-2",
+        "span-3",
+        "span-4",
+        "span-5",
+        "span-6",
+    }
+    extractions = read_jsonl(run_dir / "atomic_extractions.jsonl")
+    extraction_by_id = {row["sentence_span_id"]: row for row in extractions}
+    for screened_id in {"span-1", "span-2", "span-3", "span-4", "span-5", "span-6"}:
+        screened = extraction_by_id[screened_id]
+        assert screened["status"] == "unprocessable"
+        assert screened["atomic_claims"] == []
+        assert screened["ontology_candidates"] == []
+        assert screened["warnings"][0].startswith("screened_pre_extraction:")
+    assert extraction_by_id["span-7"]["status"] == "ok"
+
+
+def test_atomic_extraction_contract_rejects_candidate_predicate_mismatch() -> None:
+    sentence_span = SentenceSpan.from_mapping(
+        make_sentence_span(
+            sentence_span_id="span-1",
+            sentence_text="Corrosion weakened the wall.",
+        )
+    )
+    payload = {
+        "sentence_span_id": sentence_span.sentence_span_id,
+        "status": "ok",
+        "atomic_claims": [
+            {
+                **make_candidate_claim(sentence_span_id=sentence_span.sentence_span_id),
+                "predicate": "associated_with",
+                "predicate_candidate": "weakened",
+            }
+        ],
+        "ontology_candidates": [],
+        "unresolved": [],
+        "warnings": [],
+    }
+
+    with pytest.raises(ValueError, match="predicate must equal predicate_candidate"):
+        AtomicExtractionResult.from_mapping(payload, sentence_span=sentence_span)

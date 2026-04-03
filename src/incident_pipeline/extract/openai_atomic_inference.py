@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import time
 from typing import Any, Protocol
 
@@ -27,9 +28,22 @@ TERMINAL_BATCH_STATUSES = {"completed", "failed", "expired", "cancelled"}
 
 
 class TransientOpenAIError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        request_id: str | None = None,
+        retry_after_seconds: int | None = None,
+        error_kind: str = "transient_dependency_failure",
+        provider_message: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.request_id = request_id
+        self.retry_after_seconds = retry_after_seconds
+        self.error_kind = error_kind
+        self.provider_message = provider_message
 
 
 class OpenAIConfigurationError(RuntimeError):
@@ -41,18 +55,71 @@ class OpenAIBatchError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class LiveRetryEvent:
+    attempt_number: int
+    status_code: int | None
+    request_id: str | None
+    error_kind: str
+    retry_after_seconds: int | None
+    provider_retry_after_applied: bool
+    computed_backoff_seconds: float
+    jitter_seconds: float
+    sleep_seconds_applied: float
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "attempt_number": self.attempt_number,
+            "status_code": self.status_code,
+            "request_id": self.request_id,
+            "error_kind": self.error_kind,
+            "retry_after_seconds": self.retry_after_seconds,
+            "provider_retry_after_seconds": self.retry_after_seconds,
+            "provider_retry_after_applied": self.provider_retry_after_applied,
+            "computed_backoff_seconds": round(self.computed_backoff_seconds, 6),
+            "jitter_seconds": round(self.jitter_seconds, 6),
+            "sleep_seconds_applied": round(self.sleep_seconds_applied, 6),
+        }
+
+
+@dataclass(frozen=True)
+class LivePacingEvent:
+    attempt_number: int
+    requests_per_minute: float
+    request_interval_seconds: float
+    sleep_seconds_applied: float
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "attempt_number": self.attempt_number,
+            "requests_per_minute": self.requests_per_minute,
+            "request_interval_seconds": round(self.request_interval_seconds, 6),
+            "sleep_seconds_applied": round(self.sleep_seconds_applied, 6),
+        }
+
+
+@dataclass(frozen=True)
 class LiveRequestTrace:
     sentence_span_id: str
+    artifact_id: str
     request_id: str | None
     attempt_count: int
     retry_status_codes: tuple[int, ...]
+    retry_after_seconds_seen: tuple[int, ...]
+    pacing_history: tuple[LivePacingEvent, ...]
+    retry_history: tuple[LiveRetryEvent, ...]
+    final_outcome_classification: str
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "sentence_span_id": self.sentence_span_id,
+            "artifact_id": self.artifact_id,
             "request_id": self.request_id,
             "attempt_count": self.attempt_count,
             "retry_status_codes": list(self.retry_status_codes),
+            "retry_after_seconds_seen": list(self.retry_after_seconds_seen),
+            "pacing_history": [item.to_mapping() for item in self.pacing_history],
+            "retry_history": [item.to_mapping() for item in self.retry_history],
+            "final_outcome_classification": self.final_outcome_classification,
         }
 
 
@@ -146,6 +213,61 @@ def _base_url() -> str:
     return os.getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL).rstrip("/")
 
 
+def _extract_request_id(headers: Mapping[str, Any]) -> str | None:
+    for key in ("x-request-id", "request-id"):
+        value = headers.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _parse_retry_after_seconds(headers: Mapping[str, Any]) -> int | None:
+    value = headers.get("retry-after")
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        parsed = int(stripped)
+    except ValueError:
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _extract_error_message(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, Mapping):
+        return None
+    message = error.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return None
+
+
+def _parse_retry_after_from_provider_message(message: str | None) -> int | None:
+    if not message:
+        return None
+    match = re.search(r"please try again in\s+(\d+)s\b", message, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    try:
+        value = int(match.group(1))
+    except ValueError:
+        return None
+    if value < 0:
+        return None
+    return value
+
+
 def build_atomic_prompt(*, prompt_version: str = PROMPT_VERSION) -> str:
     if prompt_version != PROMPT_VERSION:
         raise ValueError(
@@ -159,12 +281,16 @@ def build_atomic_prompt(*, prompt_version: str = PROMPT_VERSION) -> str:
         "Transform exactly one governed SentenceSpan into lightweight structured claims.\n"
         "Rules:\n"
         "- Emit only text-supported claims. Never infer unstated facts.\n"
+        "- If the span is a label, heading, checkbox option, form field title, form prompt, "
+        "or fragment rather than an asserted proposition, return status=unprocessable.\n"
+        "- If no explicit subject can be grounded from the span text, return status=unprocessable.\n"
         "- Every claim must include sentence_span_id, parent_structural_span_id, artifact_id, "
         "predicate, predicate_status, and context_ref.\n"
         "- Core predicates are locked to: "
         f"{core_predicates}.\n"
         "- Use predicate_status=candidate only when you preserve the raw phrase in predicate_raw "
         "and the normalized exploratory predicate in predicate_candidate.\n"
+        "- When predicate_status=candidate, predicate must exactly equal predicate_candidate.\n"
         "- Use predicate_status=unresolved only when no safe predicate can be normalized. "
         "When unresolved, set predicate to 'unresolved' and preserve the raw phrase in predicate_raw.\n"
         "- Preserve parent context linkage with context_ref = context:<sentence_span_id>.\n"
@@ -359,11 +485,31 @@ class OpenAIResponsesAPIClient:
         try:
             response = self._client.post("/responses", json=request_body)
         except httpx.RequestError as exc:
-            raise TransientOpenAIError(f"OpenAI request failed: {exc}") from exc
-        if response.status_code == 429 or response.status_code >= 500:
             raise TransientOpenAIError(
-                f"OpenAI transient error status={response.status_code}",
+                f"OpenAI request transport error: {exc}",
+                error_kind="network_request_error",
+            ) from exc
+        request_id = _extract_request_id(response.headers)
+        provider_message = _extract_error_message(response)
+        retry_after_seconds = _parse_retry_after_seconds(response.headers)
+        if retry_after_seconds is None:
+            retry_after_seconds = _parse_retry_after_from_provider_message(provider_message)
+        if response.status_code == 429 or response.status_code >= 500:
+            if response.status_code == 429:
+                message = f"OpenAI rate limit status=429"
+                error_kind = "rate_limited_429"
+            else:
+                message = f"OpenAI provider error status={response.status_code}"
+                error_kind = "provider_5xx"
+            if provider_message:
+                message = f"{message}: {provider_message}"
+            raise TransientOpenAIError(
+                message,
                 status_code=response.status_code,
+                request_id=request_id,
+                retry_after_seconds=retry_after_seconds,
+                error_kind=error_kind,
+                provider_message=provider_message,
             )
         response.raise_for_status()
         payload = response.json()

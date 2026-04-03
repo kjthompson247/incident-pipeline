@@ -61,10 +61,12 @@ atomic_extraction:
   sentence_span_root: "extract/sentence_spans"
   output_root: "extract/atomic"
   require_certified_input: true
-  prompt_version: "claim-inference-v1"
+  prompt_version: "claim-inference-v2"
   model_contract_version: "sentence-to-claims-v1"
   ontology_version: "claims-ontology-v1"
   mapping_contract_version: "claim-mapping-v1"
+  live_requests_per_minute: 300.0
+  live_max_workers: 10
   live_max_retries: 3
   live_retry_base_delay_seconds: 1.0
   batch_completion_window: "24h"

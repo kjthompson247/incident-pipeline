@@ -8,7 +8,7 @@ from typing import Any
 MODEL_CONTRACT_VERSION = "sentence-to-claims-v1"
 ONTOLOGY_VERSION = "claims-ontology-v1"
 MAPPING_CONTRACT_VERSION = "claim-mapping-v1"
-PROMPT_VERSION = "claim-inference-v1"
+PROMPT_VERSION = "claim-inference-v2"
 
 STATUS_VALUES = {"ok", "unprocessable"}
 ASSERTION_MODE_VALUES = {"stated", "observed", "concluded", "recommended"}

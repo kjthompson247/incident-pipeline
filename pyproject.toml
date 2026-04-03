@@ -22,6 +22,7 @@ dependencies = [
 ntsb-acquire = "incident_pipeline.acquisition.ntsb.cli:app"
 sentence-span-generate = "incident_pipeline.extract.cli:sentence_spans_app"
 atomic-extract = "incident_pipeline.extract.cli:atomic_extract_app"
+atomic-extract-live = "incident_pipeline.extract.cli:atomic_extract_live_app"
 
 [build-system]
 requires = ["hatchling==1.27.0"]

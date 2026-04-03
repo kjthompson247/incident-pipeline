@@ -12,6 +12,7 @@ from incident_pipeline.extract.atomic_extract import (
     load_config as load_atomic_config,
     resolve_output_root as resolve_atomic_output_root,
     run_atomic_extraction_batch,
+    run_atomic_extraction_live,
 )
 from incident_pipeline.extract.sentence_spans import (
     load_config as load_sentence_span_config,
@@ -28,6 +29,13 @@ atomic_extract_app = typer.Typer(
     add_completion=False,
     help=(
         "Run governed atomic extraction with an explicit transformer adapter. "
+        "By default this consumes the latest certified sentence span run."
+    ),
+)
+atomic_extract_live_app = typer.Typer(
+    add_completion=False,
+    help=(
+        "Run governed atomic extraction against the OpenAI Responses API. "
         "By default this consumes the latest certified sentence span run."
     ),
 )
@@ -188,6 +196,100 @@ def atomic_extract_command(
             config,
             transform_span=transformer_callable,
             input_path_override=input_path,
+        )
+        run_dir = _find_created_run_dir(output_root, before)
+        summary = _read_run_summary(run_dir, "atomic_run_summary.json")
+        _print_compact_summary(run_dir, summary)
+        _exit_for_failed_run(summary)
+    except Exception as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@atomic_extract_live_app.callback(invoke_without_command=True)
+def atomic_extract_live_command(
+    ctx: typer.Context,
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Optional settings YAML path.",
+    ),
+    model: str = typer.Option(
+        ...,
+        "--model",
+        help="OpenAI model name for live governed claim inference.",
+    ),
+    document_limit: int | None = typer.Option(
+        None,
+        "--document-limit",
+        min=1,
+        help=(
+            "Optional limit on the first N distinct artifact_id values from the "
+            "latest certified sentence span run. Useful for small live smoke tests."
+        ),
+    ),
+    input_path: Path | None = typer.Option(
+        None,
+        "--input-path",
+        help=(
+            "Optional override for a specific certified sentence_spans.jsonl file. "
+            "Defaults to the latest certified sentence span run under the configured "
+            "sentence_span_root."
+        ),
+    ),
+    max_retries: int | None = typer.Option(
+        None,
+        "--max-retries",
+        min=0,
+        help="Optional retry budget for 429/transient Responses API failures.",
+    ),
+    retry_base_delay_seconds: float | None = typer.Option(
+        None,
+        "--retry-base-delay-seconds",
+        min=0.0,
+        help=(
+            "Optional base exponential backoff delay in seconds for transient "
+            "Responses API retries. Provider Retry-After guidance can increase the "
+            "actual sleep applied."
+        ),
+    ),
+    requests_per_minute: float | None = typer.Option(
+        None,
+        "--requests-per-minute",
+        min=0.000001,
+        help=(
+            "Optional global pacing limit for live Responses API calls, including "
+            "retries. Defaults to atomic_extraction.live_requests_per_minute or "
+            "300.0 requests/minute if unset."
+        ),
+    ),
+    max_workers: int | None = typer.Option(
+        None,
+        "--max-workers",
+        min=1,
+        help=(
+            "Optional bound on the live worker pool. All workers still share the "
+            "same global pacing budget."
+        ),
+    ),
+) -> None:
+    if ctx.invoked_subcommand is not None:
+        return
+
+    try:
+        cfg = load_atomic_config(config)
+        output_root = resolve_atomic_output_root(cfg)
+        before = _snapshot_runs(output_root)
+        run_atomic_extraction_live(
+            config,
+            model=model,
+            input_path_override=input_path,
+            document_limit=document_limit,
+            max_retries=max_retries,
+            retry_base_delay_seconds=retry_base_delay_seconds,
+            requests_per_minute=requests_per_minute,
+            max_workers=max_workers,
         )
         run_dir = _find_created_run_dir(output_root, before)
         summary = _read_run_summary(run_dir, "atomic_run_summary.json")

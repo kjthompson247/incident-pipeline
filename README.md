@@ -132,6 +132,7 @@ Extract substages:
 ```bash
 uv run sentence-span-generate --config path/to/settings.yaml
 uv run atomic-extract --config path/to/settings.yaml --transformer package.module:callable_name
+uv run atomic-extract-live --config path/to/settings.yaml --model gpt-4.1-mini --document-limit 10
 ```
 
 `sentence-span-generate` is deterministic and model-free.
@@ -174,6 +175,18 @@ run_atomic_extraction_openai_batch(
 
 Both modes preserve the same governed artifacts and require certified
 SentenceSpan upstream input by default.
+
+`atomic-extract-live` now applies a global live request pacer of
+`300.0` requests/minute by default, either from
+`atomic_extraction.live_requests_per_minute` or the built-in fallback. When the
+Responses API returns `429` guidance such as `Retry-After` or
+`Please try again in 20s`, the runner still honors that provider feedback and
+can sleep longer than the nominal pacer interval.
+
+For a small live smoke test, `atomic-extract-live --document-limit 10` limits
+execution to the first 10 distinct `artifact_id` values from the latest
+certified SentenceSpan run in file order. That avoids hand-picking run IDs
+while keeping the input bounded and deterministic.
 
 Extract and structure use the manifest database flow. Initialize and populate it before running those stages:
 

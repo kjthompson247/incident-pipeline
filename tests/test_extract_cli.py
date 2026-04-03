@@ -8,7 +8,12 @@ import yaml
 from typer.testing import CliRunner
 
 from incident_pipeline.common.stage_runs import sha256_file
-from incident_pipeline.extract.cli import atomic_extract_app, sentence_spans_app
+from incident_pipeline.extract.atomic_contract import PROMPT_VERSION
+from incident_pipeline.extract.cli import (
+    atomic_extract_app,
+    atomic_extract_live_app,
+    sentence_spans_app,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -95,7 +100,13 @@ def write_sentence_span_config(config_path: Path, db_path: Path, processed_root:
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
 
 
-def write_atomic_config(config_path: Path, sentence_span_root: Path, output_root: Path) -> None:
+def write_atomic_config(
+    config_path: Path,
+    sentence_span_root: Path,
+    output_root: Path,
+    *,
+    live_max_workers: int = 1,
+) -> None:
     storage_root = config_path.parent
     config = {
         "paths": {
@@ -106,10 +117,12 @@ def write_atomic_config(config_path: Path, sentence_span_root: Path, output_root
             "output_root": relpath(output_root, storage_root),
             "sentence_span_root": relpath(sentence_span_root, storage_root),
             "require_certified_input": True,
-            "prompt_version": "claim-inference-v1",
+            "prompt_version": PROMPT_VERSION,
             "model_contract_version": "sentence-to-claims-v1",
             "ontology_version": "claims-ontology-v1",
             "mapping_contract_version": "claim-mapping-v1",
+            "live_requests_per_minute": 1000000.0,
+            "live_max_workers": live_max_workers,
         }
     }
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -339,3 +352,165 @@ def test_atomic_extract_cli_accepts_explicit_certified_input_override(
 
     assert result.exit_code == 0
     assert "upstream_run_id=sentence_span_generation_2026-03-29T12:00:00.000000Z_pinned" in result.output
+
+
+def test_atomic_extract_live_cli_runs_with_document_limit(tmp_path: Path, monkeypatch) -> None:
+    namespaced_root = namespace_root(tmp_path)
+    sentence_span_root = namespaced_root / "extract" / "sentence_spans"
+    output_root = namespaced_root / "extract" / "atomic"
+    config_path = tmp_path / "settings.yaml"
+    first_run_dir = write_certified_sentence_span_run(
+        sentence_span_root,
+        run_id="sentence_span_generation_2026-03-29T12:00:00.000000Z_live",
+    )
+    sentence_spans_path = first_run_dir / "sentence_spans.jsonl"
+    sentence_spans_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "sentence_span_id": "span-1",
+                        "artifact_id": "artifact-1",
+                        "case_id": "case-1",
+                        "parent_structural_span_id": "section-1",
+                        "locator": {"paragraph": 1, "sentence": 1},
+                        "sentence_text": "Artifact one first sentence.",
+                        "sentence_index": 1,
+                        "segmentation_version": "sentence-split-v1",
+                        "provenance": {
+                            "artifact_checksum": "sha256:artifact-1",
+                            "text_extraction_version": "extract:pypdf",
+                            "segmentation_version": "sentence-split-v1",
+                        },
+                        "context": {"preceding_text": "", "following_text": ""},
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "sentence_span_id": "span-2",
+                        "artifact_id": "artifact-2",
+                        "case_id": "case-1",
+                        "parent_structural_span_id": "section-1",
+                        "locator": {"paragraph": 1, "sentence": 2},
+                        "sentence_text": "Artifact two first sentence.",
+                        "sentence_index": 2,
+                        "segmentation_version": "sentence-split-v1",
+                        "provenance": {
+                            "artifact_checksum": "sha256:artifact-2",
+                            "text_extraction_version": "extract:pypdf",
+                            "segmentation_version": "sentence-split-v1",
+                        },
+                        "context": {"preceding_text": "", "following_text": ""},
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (first_run_dir / "sentence_span_run_summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": first_run_dir.name,
+                "stage_name": "sentence_span_generation",
+                "certification_status": "certified",
+                "certified_at": "2026-03-29T12:00:01Z",
+                "primary_output_count": 2,
+                "primary_output_digest": sha256_file(sentence_spans_path),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_atomic_config(
+        config_path,
+        sentence_span_root,
+        output_root,
+        live_max_workers=2,
+    )
+
+    class FakeResponsesClient:
+        def create_response(self, request_body):  # type: ignore[no-untyped-def]
+            sentence_span_id = request_body["metadata"]["sentence_span_id"]
+            return {
+                "id": f"resp-{sentence_span_id}",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "sentence_span_id": sentence_span_id,
+                                        "status": "ok",
+                                        "atomic_claims": [
+                                            {
+                                                "claim_id": "claim-1",
+                                                "sentence_span_id": sentence_span_id,
+                                                "parent_structural_span_id": "section-1",
+                                                "artifact_id": "artifact-1",
+                                                "subject_text": "artifact one",
+                                                "subject_ref": None,
+                                                "predicate": "reported",
+                                                "object_text": None,
+                                                "object_ref": None,
+                                                "assertion_mode": "concluded",
+                                                "polarity": "affirmed",
+                                                "predicate_status": "core",
+                                                "predicate_raw": None,
+                                                "predicate_candidate": None,
+                                                "context_ref": f"context:{sentence_span_id}",
+                                            }
+                                        ],
+                                        "ontology_candidates": [],
+                                        "unresolved": [],
+                                        "warnings": [],
+                                    },
+                                    sort_keys=True,
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        "incident_pipeline.extract.atomic_extract.OpenAIResponsesAPIClient",
+        lambda: FakeResponsesClient(),
+    )
+
+    result = RUNNER.invoke(
+        atomic_extract_live_app,
+        [
+            "--config",
+            str(config_path),
+            "--model",
+            "gpt-test",
+            "--document-limit",
+            "1",
+            "--max-workers",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "stage=atomic_extract" in result.output
+    assert "certification=certified" in result.output
+    run_dir = next(path for path in (output_root / "runs").iterdir() if path.is_dir())
+    atomic_run_summary = json.loads((run_dir / "atomic_run_summary.json").read_text(encoding="utf-8"))
+    assert atomic_run_summary["execution_mode"] == "responses_api"
+    inference_metadata = json.loads((run_dir / "inference_metadata.json").read_text(encoding="utf-8"))
+    assert inference_metadata["live_max_workers"] == 2
+    assert inference_metadata["live_worker_pool_size_used"] == 1
+    sentence_spans = [
+        json.loads(line)
+        for line in (run_dir / "sentence_spans.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(sentence_spans) == 1
+    assert sentence_spans[0]["artifact_id"] == "artifact-1"
